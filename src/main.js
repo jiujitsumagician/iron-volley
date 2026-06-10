@@ -185,3 +185,37 @@ if (qp.has("test")) {
 } else {
   menu.show();
 }
+
+// ── gamepad diagnostic overlay (?paddebug) ───────────────────
+// Reads navigator.getGamepads() RAW (bypassing our manager) so we can see
+// exactly what a controller reports — which axes move with each stick and
+// which index each button is — to support non-standard mappings.
+if (qp.has("paddebug")) {
+  const dbg = document.createElement("div");
+  dbg.style.cssText =
+    "position:fixed;left:10px;top:10px;z-index:99999;background:rgba(4,8,6,.86);" +
+    "color:#8fe;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;padding:10px 12px;" +
+    "border:1px solid #2a4a3a;border-radius:8px;max-width:560px;white-space:pre-wrap;pointer-events:none;";
+  document.body.appendChild(dbg);
+  setInterval(() => {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const out = [];
+    let any = false;
+    for (let i = 0; i < pads.length; i++) {
+      const p = pads[i];
+      if (!p) continue;
+      any = true;
+      const ax = Array.from(p.axes).map((a, k) => `${k}:${a.toFixed(2)}`).join("  ");
+      const pressed = p.buttons
+        .map((b, k) => (b.pressed || b.value > 0.4 ? k : null))
+        .filter((x) => x !== null).join(", ") || "none";
+      out.push(
+        `#${i} ${p.id}\n  mapping: ${p.mapping || "(NON-STANDARD)"}\n` +
+        `  axes(${p.axes.length}): ${ax}\n  buttons(${p.buttons.length}) pressed: [${pressed}]`
+      );
+    }
+    dbg.textContent =
+      "GAMEPAD DEBUG — move a stick / press each button and note the numbers\n\n" +
+      (any ? out.join("\n\n") : "No gamepad seen yet — press a button on the controller.");
+  }, 100);
+}
