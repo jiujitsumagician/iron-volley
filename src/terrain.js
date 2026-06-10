@@ -16,15 +16,7 @@ const GRID = 220; // segments per side
 
 export function buildWorld(map) {
   const group = new THREE.Group();
-  const heightAt = makeHeightFn(map);
-
-  const normalAt = (x, z) => {
-    const e = 1.6;
-    const hL = heightAt(x - e, z), hR = heightAt(x + e, z);
-    const hD = heightAt(x, z - e), hU = heightAt(x, z + e);
-    const n = new THREE.Vector3(hL - hR, 2 * e, hD - hU);
-    return n.normalize();
-  };
+  const baseHeightAt = makeHeightFn(map);
 
   // ── terrain mesh ─────────────────────────────────────────────
   const geo = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, GRID, GRID);
@@ -33,9 +25,43 @@ export function buildWorld(map) {
   const colors = new Float32Array(pos.count * 3);
   const pal = map.palette;
 
+  // ── dynamic crater field ─────────────────────────────────────
+  // A per-vertex height offset grid layered on top of the analytic
+  // base height. Both the mesh AND the physics height query read it,
+  // so shell craters are real terrain — tanks sink into them, shells
+  // arc into them, the battlefield scars as the fight goes on.
+  const GRIDN = GRID + 1;
+  const offsets = new Float32Array(GRIDN * GRIDN);
+  // robustly recover the regular grid mapping straight from the verts
+  const X0 = pos.getX(0), XStep = pos.getX(1) - pos.getX(0);
+  const Z0 = pos.getZ(0), ZStep = pos.getZ(GRIDN) - pos.getZ(0);
+  const colOf = (x) => (x - X0) / XStep;
+  const rowOf = (z) => (z - Z0) / ZStep;
+
+  function sampleOffset(x, z) {
+    const fc = colOf(x), fr = rowOf(z);
+    if (fc < 0 || fc > GRID || fr < 0 || fr > GRID) return 0;
+    const c0 = fc | 0, r0 = fr | 0;
+    const c1 = Math.min(GRID, c0 + 1), r1 = Math.min(GRID, r0 + 1);
+    const tc = fc - c0, tr = fr - r0;
+    const o = offsets;
+    const a = o[r0 * GRIDN + c0], b = o[r0 * GRIDN + c1];
+    const c = o[r1 * GRIDN + c0], d = o[r1 * GRIDN + c1];
+    return lerp(lerp(a, b, tc), lerp(c, d, tc), tr);
+  }
+
+  const heightAt = (x, z) => baseHeightAt(x, z) + sampleOffset(x, z);
+
+  const normalAt = (x, z, out = new THREE.Vector3()) => {
+    const e = 1.6;
+    const hL = heightAt(x - e, z), hR = heightAt(x + e, z);
+    const hD = heightAt(x, z - e), hU = heightAt(x, z + e);
+    return out.set(hL - hR, 2 * e, hD - hU).normalize();
+  };
+
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
-    const h = heightAt(x, z);
+    const h = baseHeightAt(x, z);
     pos.setY(i, h);
   }
   geo.computeVertexNormals();
@@ -66,6 +92,63 @@ export function buildWorld(map) {
     colors[i * 3 + 2] = b * v;
   }
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const colorAttr = geo.attributes.color;
+
+  // Carve a crater: deepen the offset grid in a radius, scorch the
+  // vertex colors, then re-displace + re-normal ONLY the touched
+  // block of vertices (rows are contiguous, so one upload range).
+  const scorch = map.slopeColor.map((v) => v * 0.32);
+  function deform(cx, cz, radius, depth, opts = {}) {
+    if (radius <= 0 || depth <= 0) return;
+    const sc = opts.scorch ?? scorch;
+    const spanC = Math.ceil(radius / Math.abs(XStep)) + 1;
+    const spanR = Math.ceil(radius / Math.abs(ZStep)) + 1;
+    const cc = Math.round(colOf(cx)), rc = Math.round(rowOf(cz));
+    const cLo = clamp(cc - spanC, 0, GRID), cHi = clamp(cc + spanC, 0, GRID);
+    const rLo = clamp(rc - spanR, 0, GRID), rHi = clamp(rc + spanR, 0, GRID);
+    if (cLo > cHi || rLo > rHi) return;
+
+    // pass 1: accumulate offsets (so pass-2 normals see final heights)
+    for (let r = rLo; r <= rHi; r++) {
+      for (let c = cLo; c <= cHi; c++) {
+        const idx = r * GRIDN + c;
+        const dx = pos.getX(idx) - cx, dz = pos.getZ(idx) - cz;
+        const d = Math.hypot(dx, dz);
+        if (d > radius) continue;
+        const q = d / radius;
+        const bowl = -depth * (Math.cos(Math.min(1, q) * Math.PI) * 0.5 + 0.5);
+        const rim = depth * 0.12 * Math.exp(-(((q - 0.95) / 0.16) ** 2));
+        offsets[idx] = clamp(offsets[idx] + bowl + rim, -90, 60);
+      }
+    }
+    // pass 2: re-displace mesh, scorch color, recompute analytic normals
+    const e = Math.max(Math.abs(XStep), Math.abs(ZStep));
+    for (let r = rLo; r <= rHi; r++) {
+      for (let c = cLo; c <= cHi; c++) {
+        const idx = r * GRIDN + c;
+        const x = pos.getX(idx), z = pos.getZ(idx);
+        const dx = x - cx, dz = z - cz;
+        const d = Math.hypot(dx, dz);
+        if (d > radius) continue;
+        pos.setY(idx, baseHeightAt(x, z) + offsets[idx]);
+        const burn = clamp((1 - d / radius) * (opts.burn ?? 0.85), 0, 0.92);
+        const j = idx * 3;
+        colors[j] = lerp(colors[j], sc[0], burn);
+        colors[j + 1] = lerp(colors[j + 1], sc[1], burn);
+        colors[j + 2] = lerp(colors[j + 2], sc[2], burn);
+        const nx = heightAt(x - e, z) - heightAt(x + e, z);
+        const nz = heightAt(x, z - e) - heightAt(x, z + e);
+        const inv = 1 / Math.hypot(nx, 2 * e, nz);
+        nrm.setXYZ(idx, nx * inv, 2 * e * inv, nz * inv);
+      }
+    }
+    // contiguous vertex span (whole rows rLo..rHi) → one upload range
+    const start = rLo * GRIDN;
+    const count = (rHi - rLo + 1) * GRIDN;
+    markRange(pos, start, count);
+    markRange(nrm, start, count);
+    markRange(colorAttr, start, count);
+  }
 
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -78,10 +161,11 @@ export function buildWorld(map) {
   terrainMesh.name = "terrain";
   group.add(terrainMesh);
 
-  // Neon Rift: glowing wireframe overlay on the terrain
+  // Neon Rift: glowing wireframe overlay on the terrain. Shares the
+  // SAME geometry as the terrain so craters deform both in lockstep.
   if (map.wireframeGlow) {
     const wire = new THREE.Mesh(
-      geo.clone(),
+      geo,
       new THREE.MeshBasicMaterial({
         color: map.wireframeGlow,
         wireframe: true,
@@ -128,7 +212,16 @@ export function buildWorld(map) {
   const propGroup = buildProps(map, heightAt, obstacles);
   group.add(propGroup);
 
-  return { group, heightAt, normalAt, obstacles, waterMesh, terrainMesh };
+  return { group, heightAt, normalAt, obstacles, waterMesh, terrainMesh, deform };
+}
+
+// Flag a contiguous run of vertices for GPU re-upload (partial range so
+// a crater never re-uploads the whole 48k-vertex terrain buffer).
+function markRange(attr, start, count) {
+  attr.needsUpdate = true;
+  attr.clearUpdateRanges?.();
+  if (attr.addUpdateRange) attr.addUpdateRange(start * attr.itemSize, count * attr.itemSize);
+  else attr.updateRange = { offset: start * attr.itemSize, count: count * attr.itemSize };
 }
 
 // ── shared micro-noise detail texture (multiplies vertex colors) ──

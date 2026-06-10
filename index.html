@@ -36,10 +36,10 @@
   /* ── menu chrome ────────────────────────────────────────── */
   #menu {
     display: flex; align-items: center; justify-content: center;
+    /* translucent so the live battle diorama shows behind the panel */
     background:
-      radial-gradient(1200px 700px at 50% 110%, rgba(255,128,40,.16), transparent 60%),
-      radial-gradient(900px 500px at 50% -10%, rgba(70,110,180,.18), transparent 60%),
-      linear-gradient(#05070a, #0a0e14);
+      radial-gradient(1100px 640px at 50% 8%, rgba(4,6,9,0) 34%, rgba(4,6,9,.62) 100%),
+      linear-gradient(180deg, rgba(4,6,9,.42), rgba(4,6,9,0) 26%, rgba(4,6,9,.0) 64%, rgba(4,6,9,.66));
     z-index: 20;
   }
   .panel {
@@ -175,6 +175,19 @@
     font-size: 22px; font-weight: 900; letter-spacing: .2em; text-transform: uppercase;
     color: var(--amber-hot); text-shadow: 0 0 18px rgba(255,150,50,.6), 0 2px 4px #000;
     opacity: 0; transition: opacity .2s;
+  }
+  .minimap {
+    position: absolute; right: 16px; bottom: 14px;
+    width: 170px; height: 170px; border-radius: 12px;
+    background: rgba(8,14,12,.62);
+    border: 1px solid rgba(120,170,140,.35);
+    box-shadow: 0 4px 18px rgba(0,0,0,.5), inset 0 0 24px rgba(40,90,60,.18);
+    overflow: hidden;
+  }
+  .minimap canvas { display: block; width: 170px; height: 170px; }
+  .mm-label {
+    position: absolute; left: 8px; top: 6px; font-size: 9px; letter-spacing: .28em;
+    color: rgba(150,210,170,.7); text-transform: uppercase; text-shadow: 0 1px 2px #000;
   }
   .vignette {
     position: absolute; inset: 0;

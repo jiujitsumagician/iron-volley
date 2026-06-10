@@ -19,6 +19,7 @@ import { chassisById, TEAM_COLORS } from "./tanks.js";
 import { Weapons } from "./weapons.js";
 import { Pickups } from "./pickups.js";
 import { Effects } from "./effects.js";
+import { AimPreview } from "./aim.js";
 import { BotBrain } from "./ai.js";
 import { Hud, SharedHud } from "./hud.js";
 import { Input, P1_KEYS, P2_KEYS } from "./input.js";
@@ -46,6 +47,7 @@ export class Game {
     this.gamepads = gamepads;
     this.map = mapById(config.mapId);
     this.killTarget = config.killTarget ?? 10;
+    this.friendlyFire = config.friendlyFire ?? true;
     this.over = false;
     this.elapsed = 0;
 
@@ -104,6 +106,7 @@ export class Game {
     this.weapons = new Weapons({
       scene: this.scene, world: this.world,
       effects: this.effects, audio, events: this.events,
+      friendlyFire: this.friendlyFire,
     });
     this.pickups = new Pickups({
       scene: this.scene, world: this.world,
@@ -123,6 +126,7 @@ export class Game {
         chassis: chassisById(p.chassisId),
         team: TEAM_COLORS[teamIdx++ % TEAM_COLORS.length],
         name: p.name,
+        faction: `p${i}`, // each commander is their own side
       });
       this.scene.add(tank.root);
       tank.respawn(spawns[i], this.world);
@@ -141,6 +145,7 @@ export class Game {
         keys: i === 0 ? P1_KEYS : P2_KEYS,
         shake: 0,
         engine: audio.engineStart?.() ?? null,
+        aim: new AimPreview(this.scene, this.world),
       });
       // soak-test autopilot: the "player" plays itself
       if (config.autoPilot) this.bots.push({ tank, brain: new BotBrain(tank, 1) });
@@ -153,6 +158,7 @@ export class Game {
         team: TEAM_COLORS[teamIdx++ % TEAM_COLORS.length],
         name: BOT_NAMES[b % BOT_NAMES.length],
         isBot: true,
+        faction: "bots", // bots share a side — friendly-fire OFF spares them
       });
       this.scene.add(tank.root);
       tank.respawn(spawns[config.players.length + b], this.world);
@@ -176,6 +182,11 @@ export class Game {
       this._onResize = () => composer.setSize(window.innerWidth, window.innerHeight);
       window.addEventListener("resize", this._onResize);
     }
+
+    // Pre-compile every material now (terrain, tanks, effect pools, aim
+    // overlays) so the first explosion / laser / muzzle flash doesn't
+    // stall the frame the moment it first becomes visible.
+    try { renderer.compile(this.scene, this.players[0].cam); } catch { /* non-fatal */ }
 
     this.sharedHud = new SharedHud();
     this.sharedHud.show();
@@ -347,8 +358,12 @@ export class Game {
     );
     if (this.effects.ambientCenter) this.effects.ambientCenter.copy(focus);
 
-    // ── HUD ──────────────────────────────────────────────────
-    for (const p of this.players) p.hud.update(p.tank, dt);
+    // ── HUD + aim overlays + minimap ─────────────────────────
+    for (const p of this.players) {
+      p.hud.update(p.tank, dt);
+      p.hud.drawMinimap(p.tank, this.world.tanks, WORLD_SIZE);
+      p.aim.update(this.over ? null : p.tank, !!p.tank.input.mg, dt);
+    }
 
     // win condition is re-checked continuously, not only on kill
     // events, so a mid-match killTarget change can't strand a match
@@ -416,8 +431,10 @@ export class Game {
     const sh = p.shake * p.shake;
 
     if (t.alive) {
-      // chase: behind hull, slightly toward turret facing
-      const lookYaw = t.yaw + (t.turretYaw * 0.35);
+      // chase: locked behind the gun — the camera always sits on the
+      // cardinal the turret points, so spinning the turret 360° orbits
+      // the view like a real tank commander's seat
+      const lookYaw = t.absoluteTurretYaw();
       const back = 26 + t.chassis.build.hullL * 0.6;
       const cx = t.pos.x - Math.sin(lookYaw) * back;
       const cz = t.pos.z - Math.cos(lookYaw) * back;
@@ -457,7 +474,7 @@ export class Game {
     if (this._onResize) window.removeEventListener("resize", this._onResize);
     this.composer?.dispose?.();
     audio.musicStop?.();
-    for (const p of this.players) { p.engine?.stop?.(); p.hud.hide(); }
+    for (const p of this.players) { p.engine?.stop?.(); p.hud.hide(); p.aim?.dispose(); }
     this.sharedHud.hide();
     document.getElementById("divider").style.display = "none";
     // Dispose GPU resources while everything is still attached to the
@@ -472,7 +489,7 @@ export class Game {
         });
       }
     });
-    this.effects.clear();
+    this.effects.dispose();
     this.weapons.dispose();
     this.pickups.clear();
     this.input.dispose();

@@ -53,8 +53,14 @@ export class Hud {
         </div>
       </div>
       <div class="toast"></div>
+      <div class="minimap">
+        <canvas width="170" height="170"></canvas>
+        <div class="mm-label">RADAR</div>
+      </div>
     `);
 
+    this.mmCanvas = this.el.querySelector(".minimap canvas");
+    this.mmCtx = this.mmCanvas.getContext("2d");
     this.hpBar = this.el.querySelector(".bar.hp");
     this.hpFill = this.el.querySelector(".bar.hp > i");
     this.cannonState = this.el.querySelector(".cannon-state");
@@ -106,6 +112,45 @@ export class Hud {
     this.flash.style.opacity = this.flashLevel;
 
     if (performance.now() > this.toastUntil) this.toastEl.style.opacity = 0;
+  }
+
+  /** Bottom-right radar: friendly (own faction) blue, enemy red. */
+  drawMinimap(viewer, tanks, worldSize) {
+    const ctx = this.mmCtx;
+    if (!ctx) return;
+    const S = this.mmCanvas.width;
+    const half = worldSize / 2;
+    ctx.clearRect(0, 0, S, S);
+    // sweep grid
+    ctx.strokeStyle = "rgba(120,170,140,.16)";
+    ctx.lineWidth = 1;
+    for (let g = 1; g < 4; g++) {
+      const p = (g / 4) * S;
+      ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, S); ctx.moveTo(0, p); ctx.lineTo(S, p); ctx.stroke();
+    }
+    const map = (wx, wz) => [(wx / half * 0.5 + 0.5) * S, (wz / half * 0.5 + 0.5) * S];
+    for (const t of tanks) {
+      if (!t.alive) continue;
+      const [mx, my] = map(t.pos.x, t.pos.z);
+      if (t === viewer) {
+        // self: heading triangle along the gun
+        const a = t.absoluteTurretYaw();
+        const fx = Math.sin(a), fz = Math.cos(a);
+        ctx.fillStyle = "#bdf0ff";
+        ctx.beginPath();
+        ctx.moveTo(mx + fx * 7, my + fz * 7);
+        ctx.lineTo(mx - fz * 4 - fx * 3, my + fx * 4 - fz * 3);
+        ctx.lineTo(mx + fz * 4 - fx * 3, my - fx * 4 - fz * 3);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        const friendly = viewer.faction != null && t.faction === viewer.faction;
+        ctx.fillStyle = friendly ? "#4d9bff" : "#ff4d4d";
+        ctx.beginPath();
+        ctx.arc(mx, my, 3.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
 
   damaged(frac) {

@@ -142,6 +142,16 @@ export class Menu {
         </div>
       </div>
       <div class="menu-section">
+        <div class="menu-title">Gameplay</div>
+        <div class="choices">
+          <div class="choice" data-ff style="min-width:240px;">
+            <div class="big">FRIENDLY FIRE</div>
+            <div class="sub rebind-val">${loadFF() ? "ON" : "OFF"}</div>
+            <div class="sub" style="color:#76879a;">off = same-side tanks can't damage each other</div>
+          </div>
+        </div>
+      </div>
+      <div class="menu-section">
         <div class="menu-title">Audio</div>
         <div class="choices" style="align-items:center;">
           <div class="choice" style="pointer-events:auto; cursor:default; min-width:240px;">
@@ -191,6 +201,12 @@ export class Menu {
       if (!gm) return;
       gm.setBinding("invertY", !gm.bindings.invertY);
       e.currentTarget.querySelector(".rebind-val").textContent = gm.bindings.invertY ? "ON" : "OFF";
+      audio.uiSelect?.({});
+    });
+    this.el.querySelector("[data-ff]").addEventListener("click", (e) => {
+      const next = !loadFF();
+      saveFF(next);
+      e.currentTarget.querySelector(".rebind-val").textContent = next ? "ON" : "OFF";
       audio.uiSelect?.({});
     });
     this.el.querySelector("[data-reset]").addEventListener("click", () => {
@@ -341,6 +357,7 @@ export class Menu {
         botCount: s.botCount,
         difficulty: s.difficulty,
         killTarget: 10,
+        friendlyFire: loadFF(),
       });
     };
   }
@@ -349,6 +366,14 @@ export class Menu {
 function bars(v, max) {
   const n = Math.round((v / max) * 5);
   return "▰".repeat(Math.max(1, Math.min(5, n))) + "▱".repeat(5 - Math.max(1, Math.min(5, n)));
+}
+
+function loadFF() {
+  try { return JSON.parse(localStorage.getItem("iv.friendlyFire") ?? "true"); }
+  catch { return true; }
+}
+function saveFF(v) {
+  localStorage.setItem("iv.friendlyFire", JSON.stringify(!!v));
 }
 
 function cssColor(c) {

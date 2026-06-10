@@ -278,6 +278,7 @@ export class Weapons {
         // collapse pop
         fx.explosion(gw.pos, { radius: 26, color: 0xc47aff });
         this.ctx.audio.explosion(0.7, {});
+        this.ctx.world.deform?.(gw.pos.x, gw.pos.z, 22, 5, { scorch: [0.18, 0.08, 0.26] });
         this.splash(gw.pos, 26, 70, gw.owner, "SINGULARITY");
         this.gravityWells.splice(i, 1);
       }
@@ -298,6 +299,7 @@ export class Weapons {
         const r = s.small ? 7 : 12;
         fx.explosion(p, { radius: r });
         this.ctx.audio.explosion(s.small ? 0.3 : 0.5, {});
+        this.ctx.world.deform?.(p.x, p.z, s.small ? 5.5 : 11, s.small ? 1.6 : 3.6);
         if (directHitTank) this.applyDamage(directHitTank, s.owner.chassis.stats.shellDamage * (s.small ? 0.4 : 1), s.owner, "AP SHELL");
         this.splash(p, r + 5, s.owner.chassis.stats.shellDamage * (s.small ? 0.4 : 0.85), s.owner, "AP SHELL", directHitTank);
         break;
@@ -305,6 +307,7 @@ export class Weapons {
       case "scatter": {
         fx.explosion(p, { radius: 8, color: 0xffe14d });
         this.ctx.audio.explosion(0.45, {});
+        this.ctx.world.deform?.(p.x, p.z, 9, 2.4);
         this.splash(p, 10, 26, s.owner, "SCATTER", directHitTank);
         // pop 9 bomblets in a cone upward
         for (let k = 0; k < 9; k++) {
@@ -324,6 +327,7 @@ export class Weapons {
       case "nuke": {
         fx.nuke(p);
         this.ctx.audio.nuke({});
+        this.ctx.world.deform?.(p.x, p.z, 74, 23, { burn: 0.95 });
         this.splash(p, 95, 230, s.owner, "NUKE", null, 0.35);
         this.ctx.events.onNuke?.(p);
         break;
@@ -333,6 +337,7 @@ export class Weapons {
         fx.firePool(p, 22, 8);
         this.ctx.audio.explosion(0.55, {});
         this.ctx.audio.fire({});
+        this.ctx.world.deform?.(p.x, p.z, 13, 3.0, { scorch: [0.05, 0.03, 0.02], burn: 0.95 });
         this.splash(p, 14, 30, s.owner, "INFERNO", directHitTank);
         this.firePools.push({ x: p.x, z: p.z, r: 22, until: performance.now() / 1000 + 8, owner: s.owner, tickAcc: 0 });
         break;
@@ -361,8 +366,11 @@ export class Weapons {
 
   applyDamage(tank, amount, attacker, weapon) {
     if (!tank.alive) return;
-    // self-damage is allowed (don't nuke your own feet) but never
-    // earns kill credit or victory toasts
+    // friendly fire: when disabled, same-faction tanks can't hurt each
+    // other (self-damage still lands — don't nuke your own feet)
+    if (!this.ctx.friendlyFire && attacker && attacker !== tank &&
+        attacker.faction != null && attacker.faction === tank.faction) return;
+    // self-damage is allowed but never earns kill credit or victory toasts
     const credited = attacker === tank ? null : attacker;
     const died = tank.takeDamage(amount, credited);
     this.ctx.events.onDamage?.(tank, amount, attacker);

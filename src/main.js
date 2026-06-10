@@ -4,6 +4,7 @@
 import * as THREE from "three";
 import { Game } from "./game.js";
 import { Menu } from "./menu.js";
+import { TitleScene } from "./title.js";
 import { audio } from "./audio.js";
 import { GamepadManager } from "./gamepad.js";
 
@@ -20,6 +21,7 @@ document.getElementById("app").appendChild(renderer.domElement);
 
 window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
+  title?.resize(window.innerWidth, window.innerHeight);
 });
 
 audio.init?.();
@@ -36,6 +38,7 @@ const gamepads = new GamepadManager();
 
 // ── state machine ────────────────────────────────────────────
 let game = null;
+let title = null;
 const menuEl = document.getElementById("menu");
 const endEl = document.getElementById("endscreen");
 const fade = document.getElementById("fade");
@@ -45,6 +48,7 @@ const menu = new Menu(menuEl, launchMatch, gamepads);
 function launchMatch(config) {
   fadeOut(() => {
     endEl.style.display = "none";
+    title?.dispose(); title = null; // free the diorama before the match builds
     game?.dispose();
     game = new Game(renderer, config, (result) => showEndScreen(result, config), gamepads);
     fadeIn();
@@ -139,11 +143,23 @@ function frame(now) {
     setPaused(!paused);
   }
 
+  const menuVisible = menuEl.style.display !== "none" && menuEl.style.display !== "";
+
   if (game && !paused) {
     // __TEST_MANUAL lets the headless playtest step the simulation
     // deterministically (decoupled from SwiftShader frame rate)
     if (!window.__TEST_MANUAL) game.update(dt);
     game.render(dt);
+  } else if (!game && menuVisible) {
+    // live battle diorama behind the menu
+    try {
+      if (!title) { title = new TitleScene(renderer); title.resize(window.innerWidth, window.innerHeight); }
+      title.update(dt);
+      title.render();
+    } catch (e) { console.warn("title scene:", e); title?.dispose?.(); title = null; }
+  } else if (title) {
+    title.dispose();
+    title = null;
   }
 }
 requestAnimationFrame(frame);

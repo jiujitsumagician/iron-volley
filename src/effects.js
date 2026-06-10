@@ -113,6 +113,21 @@ export class Effects {
     this.ambient("none");
   }
 
+  /** Full teardown: pooled geometries/materials AND the shared textures
+   * (which live in ShaderMaterial uniforms, so a scene-traverse dispose
+   * never reaches them). Detaches root from the scene. */
+  dispose() {
+    this.clear();
+    this.root.traverse((o) => {
+      if (o.geometry) o.geometry.dispose?.();
+      if (o.material) {
+        (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose?.());
+      }
+    });
+    for (const t of Object.values(this.textures)) t.dispose?.();
+    this.scene.remove(this.root);
+  }
+
   muzzleFlash(pos, dir) {
     const d = this._v0.copy(dir).normalize();
     const p = this._v1.copy(pos).addScaledVector(d, 1.2);

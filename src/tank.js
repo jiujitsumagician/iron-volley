@@ -12,13 +12,24 @@ import * as THREE from "three";
 import { clamp, lerp, angleDelta } from "./util.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
+// reused scratch — tank.update runs for every tank every frame, so
+// allocating fresh vectors/matrices here was steady GC pressure (a
+// prime suspect for the periodic frame hitches)
+const _fwd = new THREE.Vector3();
+const _right = new THREE.Vector3();
+const _f2 = new THREE.Vector3();
+const _basisN = new THREE.Vector3();
+const _mat = new THREE.Matrix4();
+const _quat = new THREE.Quaternion();
+const _dirQuat = new THREE.Quaternion();
 
 export class Tank {
-  constructor({ chassis, team, name, isBot = false }) {
+  constructor({ chassis, team, name, isBot = false, faction = null }) {
     this.chassis = chassis;
     this.team = team;
     this.name = name;
     this.isBot = isBot;
+    this.faction = faction; // damage/minimap allegiance (null = lone)
 
     const s = chassis.stats;
     this.hp = s.hp;
@@ -64,7 +75,7 @@ export class Tank {
 
   /** World direction the cannon points. */
   muzzleDir(out = new THREE.Vector3()) {
-    out.set(0, 0, 1).applyQuaternion(this.barrel.getWorldQuaternion(new THREE.Quaternion()));
+    out.set(0, 0, 1).applyQuaternion(this.barrel.getWorldQuaternion(_dirQuat));
     return out.normalize();
   }
 
@@ -136,12 +147,12 @@ export class Tank {
     for (const w of this.wheels) w.rotation.x += (this.speed / 0.95) * dt;
 
     // ── pose the meshes ──────────────────────────────────────
-    const n = world.normalAt(this.pos.x, this.pos.z);
-    const forward = new THREE.Vector3(dirX, 0, dirZ);
-    const right = new THREE.Vector3().crossVectors(UP, forward).normalize();
-    const f2 = new THREE.Vector3().crossVectors(right, n).normalize().negate();
-    const m = new THREE.Matrix4().makeBasis(right, n, f2.negate());
-    const q = new THREE.Quaternion().setFromRotationMatrix(m);
+    const n = world.normalAt(this.pos.x, this.pos.z, _basisN);
+    const forward = _fwd.set(dirX, 0, dirZ);
+    const right = _right.crossVectors(UP, forward).normalize();
+    const f2 = _f2.crossVectors(right, n).normalize().negate();
+    const m = _mat.makeBasis(right, n, f2.negate());
+    const q = _quat.setFromRotationMatrix(m);
     this.root.quaternion.slerp(q, Math.min(1, dt * 10));
     this.root.position.copy(this.pos);
     this.turret.rotation.y = this.turretYaw;
