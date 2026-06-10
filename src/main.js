@@ -36,6 +36,18 @@ try {
 
 const gamepads = new GamepadManager();
 
+// Menu gamepad-detection pip: tells you at a glance whether the controller is
+// actually recognized (so "nothing happens" is diagnosable — detected means a
+// button-mapping issue → rebind in Options; not detected means a connection /
+// controller-mode issue, e.g. a generic pad in DInput vs XInput).
+const padPip = document.createElement("div");
+padPip.style.cssText =
+  "position:fixed;left:14px;top:12px;z-index:60;font:12px/1 system-ui,sans-serif;" +
+  "padding:6px 12px;border-radius:999px;background:rgba(8,16,12,.78);" +
+  "border:1px solid #2f5a42;color:#86f0b0;letter-spacing:.06em;pointer-events:none;display:none;";
+padPip.textContent = "🎮 Gamepad connected";
+document.body.appendChild(padPip);
+
 // ── state machine ────────────────────────────────────────────
 let game = null;
 let title = null;
@@ -144,6 +156,7 @@ function frame(now) {
   }
 
   const menuVisible = menuEl.style.display !== "none" && menuEl.style.display !== "";
+  padPip.style.display = (menuVisible && gamepads.anyPadConnected()) ? "block" : "none";
 
   if (game && !paused) {
     // __TEST_MANUAL lets the headless playtest step the simulation

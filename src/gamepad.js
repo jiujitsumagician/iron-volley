@@ -80,6 +80,26 @@ function axis(pad, index) {
   return Number(pad && pad.axes && pad.axes[index] ? pad.axes[index] : 0);
 }
 
+// Right-stick read that tolerates non-standard / DInput controllers. Standard
+// XInput pads (exactly 4 axes) always use axes 2 (X) + 3 (Y) and are never
+// touched. Generic pads that expose more axes sometimes carry the right-stick
+// Y on axis 5 (or 4); only adopt those when the standard pair is idle and the
+// alternate is a real stick deflection — not a trigger resting at ±1.
+function readRightStick(pad) {
+  const x = axis(pad, 2);
+  let y = axis(pad, 3);
+  if (pad && pad.axes && pad.axes.length > 4) {
+    // generic/DInput pads commonly carry right-stick Y on axis 5 (or 4) while
+    // axis 3 stays flat. Use whichever reads like a real stick deflection,
+    // ignoring a trigger pinned near ±1. Standard 4-axis pads never reach here.
+    for (const yi of [5, 4]) {
+      const ay = axis(pad, yi);
+      if (Math.abs(ay) > Math.abs(y) && Math.abs(ay) < 0.985) y = ay;
+    }
+  }
+  return applyRadialDeadzone(x, y);
+}
+
 function applyRadialDeadzone(x, y) {
   const magnitude = Math.hypot(x, y);
   if (magnitude <= DEADZONE) return [0, 0];
@@ -177,7 +197,7 @@ export class GamepadManager {
     if (!pad || pad.connected === false) return { ...ZERO_STATE };
 
     const [lsx, lsy] = applyRadialDeadzone(axis(pad, 0), axis(pad, 1));
-    const [rsx, rsy] = applyRadialDeadzone(axis(pad, 2), axis(pad, 3));
+    const [rsx, rsy] = readRightStick(pad);
     const buttons = pad.buttons || [];
 
     return {

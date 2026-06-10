@@ -130,7 +130,11 @@ export class Menu {
         <div class="sub" style="max-width:560px; margin:0 auto; line-height:1.7;">
           Left stick drives · right stick aims turret &amp; elevation · <b>RT</b> fires ·
           <b>LT</b> machine gun · <b>Y</b> toggles camera · <b>Start</b> pauses.
-          Remap the buttons back in Options.
+        </div>
+        <div class="sub" style="max-width:560px; margin:12px auto 0; line-height:1.7; color:#86c8a0;">
+          Generic / non-Xbox controller? A <b>🎮 connected</b> badge on the title
+          screen means it's detected. If the sticks work but buttons don't, set
+          <b>FIRE / MG / PAUSE</b> in Options — the rebinder captures any button.
         </div>
       </div>
       <div class="row-actions"><button class="btn" data-back>← Back</button></div>
