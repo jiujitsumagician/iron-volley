@@ -136,7 +136,9 @@ export class Tank {
 
     // ── turret + barrel ──────────────────────────────────────
     this.turretYaw += inp.turretTurn * s.turretTurn * dt;
-    this.barrelPitch = clamp(this.barrelPitch + inp.pitch * 0.9 * dt, 0.02, 1.05);
+    // allow real depression below horizontal so you can aim down at close /
+    // downhill targets (cannon and MG both follow this)
+    this.barrelPitch = clamp(this.barrelPitch + inp.pitch * 0.9 * dt, -0.35, 1.05);
 
     // ── timers ───────────────────────────────────────────────
     this.reloadLeft = Math.max(0, this.reloadLeft - dt);

@@ -104,9 +104,9 @@ export class Menu {
       <div class="hint">
         ${this.gamepads?.anyPadConnected() ? "🎮 GAMEPAD DETECTED — sticks drive &amp; aim, RT fires, LT machine-guns. Remap in OPTIONS." : "Plug in a gamepad any time — it just works."}
         <br/><br/>
-        P1 <kbd>W A S D</kbd> drive · <kbd>Q</kbd><kbd>E</kbd> turret · <kbd>R</kbd><kbd>F</kbd> elevation · <kbd>SPACE</kbd> fire · <kbd>L-SHIFT</kbd> MG
+        P1 <kbd>W A S D</kbd> drive · <kbd>Q</kbd><kbd>E</kbd> turret · <kbd>R</kbd><kbd>F</kbd> elevation · <kbd>SPACE</kbd> fire · <kbd>L-SHIFT</kbd> MG · <kbd>C</kbd> view
         &nbsp;&nbsp;|&nbsp;&nbsp;
-        P2 <kbd>ARROWS</kbd> · <kbd>,</kbd><kbd>.</kbd> turret · <kbd>'</kbd><kbd>;</kbd> elevation · <kbd>ENTER</kbd> fire · <kbd>/</kbd> MG
+        P2 <kbd>ARROWS</kbd> · <kbd>,</kbd><kbd>.</kbd> turret · <kbd>'</kbd><kbd>;</kbd> elevation · <kbd>ENTER</kbd> fire · <kbd>/</kbd> MG · <kbd>P</kbd> view
       </div>
     `);
     this.bindChoices((v) => {

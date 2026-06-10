@@ -101,8 +101,7 @@ export class Effects {
     }
     for (let i = 0; i < LIGHTS; i++) {
       this.lLife[i] = 0;
-      this.lights[i].visible = false;
-      this.lights[i].intensity = 0;
+      this.lights[i].intensity = 0; // stay visible — keep light count constant
     }
     for (let i = 0; i < BEAMS; i++) {
       this.bLife[i] = 0;
@@ -382,7 +381,11 @@ export class Effects {
     this.lCursor = 0;
     for (let i = 0; i < LIGHTS; i++) {
       const l = new THREE.PointLight(0xffaa55, 0, 40, 2);
-      l.visible = false;
+      // Stay visible at zero intensity. Toggling light.visible changes the
+      // scene's active-light COUNT, which forces Three.js to recompile every
+      // material the moment an explosion light turns on/off — the random
+      // mid-combat freezes. A constant light count compiles exactly once.
+      l.visible = true;
       this.lights.push(l);
       this.root.add(l);
     }
@@ -511,7 +514,7 @@ export class Effects {
     l.color.setHex(color);
     l.intensity = intensity;
     l.distance = distance;
-    l.visible = true;
+    // never toggle l.visible — keep the light count constant (see _buildLights)
     this.lLife[i] = life;
     this.lMax[i] = life;
     this.lStart[i] = intensity;
@@ -643,14 +646,14 @@ export class Effects {
       this.lLife[i] -= dt;
       const l = this.lights[i];
       if (this.lLife[i] <= 0) {
-        l.visible = false;
-        l.intensity = 0;
+        l.intensity = 0; // stay visible — keep light count constant
         continue;
       }
       const t = this.lLife[i] / this.lMax[i];
       l.intensity = this.lStart[i] * t * t;
     }
   }
+
 
   _updateBeams(dt) {
     for (let i = 0; i < BEAMS; i++) {

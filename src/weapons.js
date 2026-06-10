@@ -24,6 +24,12 @@ export const ROUND_TYPES = {
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+// reused scratch — these run on the hot firing paths (MG ~12 rounds/sec)
+const _muzzle = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _from = new THREE.Vector3();
+const _AXIS_X = new THREE.Vector3(1, 0, 0);
+const _AXIS_Y = new THREE.Vector3(0, 1, 0);
 
 export class Weapons {
   /**
@@ -58,8 +64,8 @@ export class Weapons {
     const type = (opts.allowSpecial === false ? null : tank.special?.type) ?? "standard";
     const def = ROUND_TYPES[type];
 
-    const muzzle = tank.muzzleWorld(new THREE.Vector3());
-    const dir = tank.muzzleDir(new THREE.Vector3());
+    const muzzle = tank.muzzleWorld(_muzzle);
+    const dir = tank.muzzleDir(_dir);
 
     if (type === "laser") {
       this.fireLaser(tank, muzzle, dir);
@@ -145,10 +151,12 @@ export class Weapons {
     tank.mgCooldown = 0.085; // ~12 rps
     tank.mgHeat = Math.min(1, tank.mgHeat + 0.045);
 
-    const from = tank.mgMuzzleWorld(new THREE.Vector3());
+    const from = tank.mgMuzzleWorld(_from);
+    // MG tracks the full gun elevation (not a fraction) so the crosshair is
+    // honest and the player can actually depress onto close / downhill targets
     const dir = _v2.set(0, 0, 1)
-      .applyAxisAngle(new THREE.Vector3(1, 0, 0), -tank.barrelPitch * 0.25)
-      .applyAxisAngle(new THREE.Vector3(0, 1, 0), tank.absoluteTurretYaw());
+      .applyAxisAngle(_AXIS_X, -tank.barrelPitch)
+      .applyAxisAngle(_AXIS_Y, tank.absoluteTurretYaw());
     // spread
     dir.x += (Math.random() - 0.5) * 0.035;
     dir.y += (Math.random() - 0.5) * 0.02;

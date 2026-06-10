@@ -24,6 +24,7 @@ const ZERO_STATE = {
   fire: false,
   mg: false,
   pauseEdge: false,
+  viewEdge: false,
 };
 
 function safeLocalStorage() {
@@ -187,6 +188,7 @@ export class GamepadManager {
       fire: buttonHeld(buttons[this._bindings.fire]),
       mg: buttonHeld(buttons[this._bindings.mg]),
       pauseEdge: !!(this._edges[index] && this._edges[index][this._bindings.pause]),
+      viewEdge: !!(this._edges[index] && this._edges[index][3]), // Y: toggle 1st/3rd person
     };
   }
 

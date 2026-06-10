@@ -146,6 +146,7 @@ export class Game {
         shake: 0,
         engine: audio.engineStart?.() ?? null,
         aim: new AimPreview(this.scene, this.world),
+        view: "third", // "third" chase | "first" gun-sight
       });
       // soak-test autopilot: the "player" plays itself
       if (config.autoPilot) this.bots.push({ tank, brain: new BotBrain(tank, 1) });
@@ -293,7 +294,9 @@ export class Game {
         if (Math.abs(pad.pitch) > Math.abs(read.pitch)) read.pitch = pad.pitch;
         read.fire = read.fire || pad.fire;
         read.mg = read.mg || pad.mg;
+        read.view = read.view || pad.viewEdge;
       }
+      if (read.view) p.view = p.view === "first" ? "third" : "first";
       if (frozen) { read.throttle = 0; read.fire = false; read.mg = false; }
       p.tank.input = read;
       if (read.fire) {
@@ -430,7 +433,21 @@ export class Game {
     p.shake = Math.max(0, p.shake - dt * 1.6);
     const sh = p.shake * p.shake;
 
-    if (t.alive) {
+    if (t.alive && p.view === "first") {
+      // first-person gun-sight: eye just past the muzzle looking straight
+      // down the barrel — zero self-occlusion, shows exactly where the
+      // shell/MG will go (the aim line + crosshair sit right in frame)
+      const muzzle = t.muzzleWorld(new THREE.Vector3());
+      const dir = t.muzzleDir(new THREE.Vector3());
+      p.cam.position.copy(muzzle).addScaledVector(dir, 0.6).add(
+        new THREE.Vector3(0, 0.6, 0) // ride just over the bore line
+      );
+      const look = muzzle.addScaledVector(dir, 30);
+      look.x += (Math.random() - 0.5) * sh * 5;
+      look.y += (Math.random() - 0.5) * sh * 5;
+      look.z += (Math.random() - 0.5) * sh * 5;
+      p.cam.lookAt(look);
+    } else if (t.alive) {
       // chase: locked behind the gun — the camera always sits on the
       // cardinal the turret points, so spinning the turret 360° orbits
       // the view like a real tank commander's seat

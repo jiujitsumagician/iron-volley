@@ -11,14 +11,14 @@ export const P1_KEYS = {
   forward: "KeyW", back: "KeyS", left: "KeyA", right: "KeyD",
   turretLeft: "KeyQ", turretRight: "KeyE",
   pitchUp: "KeyR", pitchDown: "KeyF",
-  fire: "Space", mg: "ShiftLeft",
+  fire: "Space", mg: "ShiftLeft", view: "KeyC",
 };
 
 export const P2_KEYS = {
   forward: "ArrowUp", back: "ArrowDown", left: "ArrowLeft", right: "ArrowRight",
   turretLeft: "Comma", turretRight: "Period",
   pitchUp: "Quote", pitchDown: "Semicolon",
-  fire: "Enter", mg: "Slash",
+  fire: "Enter", mg: "Slash", view: "KeyP",
 };
 
 export class Input {
@@ -61,6 +61,7 @@ export class Input {
       // (artillery cadence) — reload time is the real rate limiter
       fire: p.has(keys.fire) || d.has(keys.fire),
       mg: d.has(keys.mg),
+      view: p.has(keys.view), // edge: toggle 1st/3rd person
     };
   }
 

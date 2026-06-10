@@ -3,11 +3,11 @@
 
 /**
  * Per-player aiming aid. In cannon mode it integrates the live ballistic
- * arc from the muzzle and drops a landing ring on the ground where the
- * round will fall (sized + colored by the loaded round). The instant the
- * machine gun is triggered it swaps to a crosshair pinned to the exact
- * hitscan point — red when it's on an enemy. World-space, so it reads
- * correctly in both split-screen viewports.
+ * arc from the muzzle, draws it as a simple red translucent line, and
+ * drops a landing ring on the ground where the round will fall (sized by
+ * the loaded round). The instant the machine gun is triggered it swaps to
+ * a crosshair pinned to the exact hitscan point — red when it's on an
+ * enemy. World-space, so it reads correctly in both split-screen viewports.
  */
 
 import * as THREE from "three";
@@ -16,6 +16,7 @@ import { ROUND_TYPES, GRAVITY } from "./weapons.js";
 // ground footprint of each round (matches the deform/splash radii)
 const LAND_RADIUS = { standard: 11, scatter: 11, nuke: 74, incendiary: 14, gravity: 22, laser: 2.5 };
 const MAX_PTS = 80;
+const AIM_RED = 0xff3b3b;
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 
@@ -24,37 +25,23 @@ export class AimPreview {
     this.scene = scene;
     this.world = world;
 
-    // ── trajectory: faint guide line + bold glowing beads ────
+    // ── trajectory: a single red translucent line ────────────
     this.linePos = new Float32Array(MAX_PTS * 3);
     this.lineGeo = new THREE.BufferGeometry();
     this.lineGeo.setAttribute("position", new THREE.BufferAttribute(this.linePos, 3));
     this.lineGeo.setDrawRange(0, 0);
-    this.lineMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.lineMat = new THREE.LineBasicMaterial({ color: AIM_RED, transparent: true, opacity: 0.55, depthWrite: false });
     this.line = new THREE.Line(this.lineGeo, this.lineMat);
     this.line.frustumCulled = false;
     this.line.renderOrder = 3;
     scene.add(this.line);
 
-    // beads share the line's position buffer so they trace the arc
-    this.beadMat = new THREE.PointsMaterial({
-      size: 4.2, map: dotTexture(), transparent: true, depthWrite: false,
-      blending: THREE.AdditiveBlending, sizeAttenuation: true,
-    });
-    this.beads = new THREE.Points(this.lineGeo, this.beadMat);
-    this.beads.frustumCulled = false;
-    this.beads.renderOrder = 3;
-    scene.add(this.beads);
-
-    // ── landing ring + center dot ────────────────────────────
-    this.ringMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.92, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+    // ── landing ring (red translucent) ───────────────────────
+    this.ringMat = new THREE.MeshBasicMaterial({ color: AIM_RED, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 56), this.ringMat);
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.renderOrder = 3;
     scene.add(this.ring);
-    this.dotMat = new THREE.SpriteMaterial({ map: dotTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-    this.dot = new THREE.Sprite(this.dotMat);
-    this.dot.renderOrder = 4;
-    scene.add(this.dot);
 
     // ── MG crosshair: constant screen-size reticle ───────────
     this.crossMat = new THREE.SpriteMaterial({ map: crosshairTexture(), transparent: true, depthWrite: false, sizeAttenuation: false });
@@ -75,24 +62,16 @@ export class AimPreview {
 
   hide() {
     this.line.visible = false;
-    this.beads.visible = false;
     this.ring.visible = false;
-    this.dot.visible = false;
     this.cross.visible = false;
-  }
-
-  _arcOff() {
-    this.line.visible = false;
-    this.beads.visible = false;
-    this.ring.visible = false;
-    this.dot.visible = false;
   }
 
   update(tank, mgMode, dt) {
     if (!tank || !tank.alive) { this.hide(); return; }
     this._t += dt;
     if (mgMode) {
-      this._arcOff();
+      this.line.visible = false;
+      this.ring.visible = false;
       this._mgCrosshair(tank);
     } else {
       this.cross.visible = false;
@@ -102,11 +81,10 @@ export class AimPreview {
 
   _arc(tank) {
     const type = tank.special?.type ?? "standard";
-    const def = ROUND_TYPES[type] ?? ROUND_TYPES.standard;
     const muzzle = tank.muzzleWorld(this._muzzle);
     const dir = tank.muzzleDir(this._dir);
 
-    if (type === "laser") { this._straightLine(muzzle, dir, 600, def.color, 26); return; }
+    if (type === "laser") { this._straightLine(muzzle, dir, 600, LAND_RADIUS.laser); return; }
 
     const speed = tank.chassis.stats.shellSpeed * (type === "nuke" ? 0.72 : 1);
     const p = this._p.copy(muzzle);
@@ -130,14 +108,11 @@ export class AimPreview {
     }
     this.lineGeo.setDrawRange(0, n);
     this.lineGeo.attributes.position.needsUpdate = true;
-    this.lineMat.color.setHex(def.color);
-    this.beadMat.color.setHex(def.color);
     this.line.visible = true;
-    this.beads.visible = true;
-    this._placeRing(landX, landZ, LAND_RADIUS[type] ?? 11, def.color);
+    this._placeRing(landX, landZ, LAND_RADIUS[type] ?? 11);
   }
 
-  _straightLine(from, dir, range, color, ringR) {
+  _straightLine(from, dir, range, ringR) {
     const p = this._p.copy(from);
     const lp = this.linePos;
     lp[0] = p.x; lp[1] = p.y; lp[2] = p.z;
@@ -149,30 +124,23 @@ export class AimPreview {
     lp[3] = hx; lp[4] = hy; lp[5] = hz;
     this.lineGeo.setDrawRange(0, 2);
     this.lineGeo.attributes.position.needsUpdate = true;
-    this.lineMat.color.setHex(color);
-    this.beadMat.color.setHex(color);
     this.line.visible = true;
-    this.beads.visible = true;
-    this._placeRing(hx, hz, ringR, color);
+    this._placeRing(hx, hz, ringR);
   }
 
-  _placeRing(x, z, radius, color) {
+  _placeRing(x, z, radius) {
     const y = this.world.heightAt(x, z) + 0.4;
     const pulse = 1 + Math.sin(this._t * 4) * 0.05;
     this.ring.position.set(x, y, z);
     this.ring.scale.setScalar(radius * pulse);
-    this.ringMat.color.setHex(color);
     this.ring.visible = true;
-    this.dot.position.set(x, y + 0.2, z);
-    this.dot.scale.setScalar(Math.max(3, radius * 0.35));
-    this.dotMat.color.setHex(color);
-    this.dot.visible = true;
   }
 
   _mgCrosshair(tank) {
     const from = tank.mgMuzzleWorld(this._muzzle);
+    // match weapons.fireMg exactly — full barrel elevation
     const dir = this._dir.set(0, 0, 1)
-      .applyAxisAngle(AXIS_X, -tank.barrelPitch * 0.25)
+      .applyAxisAngle(AXIS_X, -tank.barrelPitch)
       .applyAxisAngle(AXIS_Y, tank.absoluteTurretYaw())
       .normalize();
     const range = 160;
@@ -195,32 +163,13 @@ export class AimPreview {
   }
 
   dispose() {
-    this.scene.remove(this.line, this.beads, this.ring, this.dot, this.cross);
+    this.scene.remove(this.line, this.ring, this.cross);
     this.lineGeo.dispose();
     this.lineMat.dispose();
-    this.beadMat.dispose();
     this.ring.geometry.dispose();
     this.ringMat.dispose();
-    this.dotMat.dispose();
     this.crossMat.dispose();
   }
-}
-
-// soft round additive dot for the arc beads + landing pip
-let _dotTex = null;
-function dotTexture() {
-  if (_dotTex) return _dotTex;
-  const s = 64, c = document.createElement("canvas");
-  c.width = c.height = s;
-  const ctx = c.getContext("2d");
-  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-  g.addColorStop(0, "rgba(255,255,255,1)");
-  g.addColorStop(0.4, "rgba(255,255,255,.85)");
-  g.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, s, s);
-  _dotTex = new THREE.CanvasTexture(c);
-  return _dotTex;
 }
 
 // crisp crosshair: open center, four ticks, thin ring
@@ -234,7 +183,6 @@ function crosshairTexture() {
   ctx.strokeStyle = "#fff";
   ctx.lineWidth = 4;
   ctx.lineCap = "round";
-  // ticks (gap in the middle)
   const inner = 16, outer = 46;
   for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
     ctx.beginPath();
@@ -246,7 +194,6 @@ function crosshairTexture() {
   ctx.beginPath();
   ctx.arc(m, m, 34, 0, Math.PI * 2);
   ctx.stroke();
-  // center pip
   ctx.fillStyle = "#fff";
   ctx.beginPath();
   ctx.arc(m, m, 3, 0, Math.PI * 2);

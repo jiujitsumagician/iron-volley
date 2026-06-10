@@ -33,6 +33,7 @@ No build step. Three.js via import map, everything else is hand-rolled.
 | Barrel elevation | `R` / `F` | `'` / `;` |
 | Fire cannon | `Space` | `Enter` |
 | Machine gun (hold) | `Left Shift` | `/` |
+| Camera (1st / 3rd person) | `C` | `P` |
 
 The cannon is ballistic — raise the barrel and lob shells **over** the terrain.
 The machine gun is hitscan for close-quarters brawls, and it overheats.

@@ -26,6 +26,19 @@ export class Pickups {
     this.crates = [];
     this.pendingRespawns = [];
     this.t = 0;
+    // Fixed pool of beacon lights, added once and never removed. Adding or
+    // removing a light changes the scene's active-light count, which makes
+    // Three.js recompile every material — a freeze on every crate pickup /
+    // respawn. A constant count compiles once. Crates borrow a slot.
+    this.lightPool = [];
+    this.freeLights = [];
+    for (let i = 0; i < ACTIVE_COUNT; i++) {
+      const l = new THREE.PointLight(0xffffff, 0, 40);
+      l.visible = true;
+      this.scene.add(l);
+      this.lightPool.push(l);
+      this.freeLights.push(i);
+    }
     for (let i = 0; i < ACTIVE_COUNT; i++) this.spawnCrate(i === 0 ? "scatter" : null);
   }
 
@@ -73,13 +86,19 @@ export class Pickups {
     );
     pillar.position.y = 35;
     group.add(pillar);
-    const light = new THREE.PointLight(def.color, 60, 40);
-    light.position.y = 5;
-    group.add(light);
+
+    // borrow a pooled beacon light (no add/remove → no shader recompile)
+    const lightIndex = this.freeLights.pop();
+    if (lightIndex != null) {
+      const l = this.lightPool[lightIndex];
+      l.position.set(x, y + 5, z);
+      l.color.setHex(def.color);
+      l.intensity = 60;
+    }
 
     group.position.set(x, y, z);
     this.scene.add(group);
-    this.crates.push({ type, group, crate, frame, x, z, y, taken: false });
+    this.crates.push({ type, group, crate, frame, x, z, y, taken: false, lightIndex });
   }
 
   update(dt) {
@@ -104,6 +123,10 @@ export class Pickups {
           this.effects.shockRing(new THREE.Vector3(c.x, c.y + 0.5, c.z), 12, def.color);
           this.events.onPickup?.(tank, c.type);
           this.scene.remove(c.group);
+          if (c.lightIndex != null) {
+            this.lightPool[c.lightIndex].intensity = 0; // free the beacon slot
+            this.freeLights.push(c.lightIndex);
+          }
           this.crates.splice(i, 1);
           this.pendingRespawns.push(this.t + RESPAWN_DELAY);
           break;
@@ -121,6 +144,9 @@ export class Pickups {
 
   clear() {
     for (const c of this.crates) this.scene.remove(c.group);
+    for (const l of this.lightPool) this.scene.remove(l);
+    this.lightPool.length = 0;
+    this.freeLights.length = 0;
     this.crates.length = 0;
     this.pendingRespawns.length = 0;
   }
