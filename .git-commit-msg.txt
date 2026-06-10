@@ -1,0 +1,36 @@
+IRON VOLLEY: playable build — 5 maps, 4 tanks, AI war, specials, split-screen
+
+3D tank artillery combat (Three.js, zero build step). Working game loop
+verified headless on every map.
+
+- Terrain: analytic heightfield (mesh + physics share one function),
+  vertex-color painting, slope rock blending, water/lava/energy planes,
+  gradient sky dome shader w/ sun + stars, per-map prop kits.
+- Maps: Dune Sea, Frostline (frozen lake + snowfall), Verdant Vale
+  (river valley), Cinder Peak (volcano + lava channels + embers),
+  Neon Rift (terraced synthwave canyon, wireframe glow, monoliths).
+- Tanks: JACKAL/VIPER/BASTION/LONGBOW — procedural chassis (hull,
+  turret, barrel, mounted MG, tracks, headlights), arcade physics over
+  the heightfield w/ slope resistance + collisions.
+- Weapons: ballistic shells (shared launch-angle solver), hold-to-fire
+  MG w/ heat, special rounds — SCATTER (9 bomblets), LANCE laser,
+  NUKE, INFERNO fire pools (DoT), SINGULARITY gravity well (pulls
+  tanks AND bends shells).
+- Pickups: beacon crates, 5 live at once, respawning.
+- AI: target selection, charge/standoff/orbit movement, terrain +
+  obstacle feelers, stop-to-fire artillery doctrine with high-arc
+  lobbing over hills, MG at knife range, crate seeking, 3 difficulties.
+- Shell: menu flow (mode/tank/bots/difficulty/map), split-screen
+  scissor rendering + dual keyboard maps, per-player chase cam w/
+  trauma shake + death orbit cam, HUD (hp/reload/heat/special/toasts),
+  kill feed, score pill, end screen standings, re-deploy.
+- Audio (Codex CLI): full procedural WebAudio kit — cannon/MG/laser/
+  nuke/fires/UI/engine loops + menu & battle music schedulers.
+- Effects (Codex CLI): pooled particles — muzzle/tracers/explosions/
+  shock rings/nuke mushroom/fire pools/wreck smoke/dust + snow & ember
+  ambience.
+- Tests: Playwright screenshot harness (7 shots, zero console errors)
+  + headless all-bot playtest (21 checks: combat on all maps, kills,
+  respawns, pickups, specials, match end) — ALL PASSING.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>

@@ -1,0 +1,16 @@
+{
+  "name": "iron-volley",
+  "version": "1.0.0",
+  "description": "IRON VOLLEY — 3D multiplayer tank artillery combat",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "start": "node serve.mjs",
+    "shots": "node test/screenshot.mjs",
+    "playtest": "node test/playtest.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0",
+    "three": "^0.180.0"
+  }
+}
