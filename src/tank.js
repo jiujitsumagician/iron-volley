@@ -10,6 +10,12 @@
 
 import * as THREE from "three";
 import { clamp, lerp, angleDelta } from "./util.js";
+import { WORLD_SIZE } from "./maps.js";
+
+// hard playable boundary — sits just inside the rim wall's base. With the
+// new climb-through traction a tank could otherwise crest the rim ramp and
+// escape onto the flat plateau beyond the world; this is the backstop.
+const RIM_RADIUS = WORLD_SIZE * 0.45;
 
 const UP = new THREE.Vector3(0, 1, 0);
 // reused scratch — tank.update runs for every tank every frame, so
@@ -106,8 +112,17 @@ export class Tank {
     const hHere = world.heightAt(this.pos.x, this.pos.z);
     const hThere = world.heightAt(nx, nz);
     const rise = (hThere - hHere) / Math.max(0.001, Math.hypot(nx - this.pos.x, nz - this.pos.z));
-    if (rise > 0.9) { nx = this.pos.x; nz = this.pos.z; this.speed *= 0.4; } // wall
-    else if (rise > 0.25) this.speed *= 1 - clamp((rise - 0.25) * 1.2, 0, 0.65) * dt * 8;
+    // Arcade traction: tanks MUSCLE up grades. Only near-vertical faces
+    // resist, and even then we creep (a fraction of the step) instead of
+    // hard-freezing, so you can always climb out of a crater rim or hill
+    // rather than getting pinned against it.
+    if (rise > 1.4) {
+      nx = this.pos.x + (nx - this.pos.x) * 0.3;
+      nz = this.pos.z + (nz - this.pos.z) * 0.3;
+      this.speed *= 0.85;
+    } else if (rise > 0.5) {
+      this.speed *= 1 - clamp((rise - 0.5) * 0.7, 0, 0.35) * dt * 6;
+    }
 
     // obstacle collision (cylinders)
     for (const o of world.obstacles) {
@@ -131,6 +146,10 @@ export class Tank {
         this.speed *= 0.85;
       }
     }
+
+    // clamp inside the playable bowl so nobody drives off the world
+    const rr = Math.hypot(nx, nz);
+    if (rr > RIM_RADIUS) { const k = RIM_RADIUS / rr; nx *= k; nz *= k; this.speed *= 0.6; }
 
     this.pos.set(nx, world.heightAt(nx, nz), nz);
 

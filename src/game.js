@@ -189,6 +189,9 @@ export class Game {
     // stall the frame the moment it first becomes visible.
     try { renderer.compile(this.scene, this.players[0].cam); } catch { /* non-fatal */ }
 
+    // top-down shaded-relief minimap of the battlefield (built once)
+    this.minimapTex = buildMinimapTexture(this.world, this.map);
+
     this.sharedHud = new SharedHud();
     this.sharedHud.show();
     this.updateScorePill();
@@ -364,8 +367,8 @@ export class Game {
     // ── HUD + aim overlays + minimap ─────────────────────────
     for (const p of this.players) {
       p.hud.update(p.tank, dt);
-      p.hud.drawMinimap(p.tank, this.world.tanks, WORLD_SIZE);
       p.aim.update(this.over ? null : p.tank, !!p.tank.input.mg, dt);
+      p.hud.drawMinimap(p.tank, this.world.tanks, WORLD_SIZE, p.aim.landing, this.minimapTex);
     }
 
     // win condition is re-checked continuously, not only on kill
@@ -512,4 +515,51 @@ export class Game {
     this.input.dispose();
     if (window.__IV?.game === this) delete window.__IV;
   }
+}
+
+// Render a top-down shaded-relief image of the map for the radar: palette
+// color by height, hillshade by surface normal, water tinted. Sampled once
+// at match start from the SAME height field the world uses.
+function buildMinimapTexture(world, map) {
+  const N = 110;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = N;
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(N, N);
+  const half = WORLD_SIZE / 2;
+  const pal = map.palette;
+  const waterLevel = map.water ? map.water.level : -Infinity;
+  const wc = map.water ? map.water.color : 0x000000;
+  const norm = new THREE.Vector3();
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const x = ((i / (N - 1)) * 2 - 1) * half * 0.98;
+      const z = ((j / (N - 1)) * 2 - 1) * half * 0.98;
+      const h = world.heightAt(x, z);
+      let c0 = pal[0], c1 = pal[pal.length - 1];
+      for (let p = 0; p < pal.length - 1; p++) {
+        if (h >= pal[p].h && h <= pal[p + 1].h) { c0 = pal[p]; c1 = pal[p + 1]; break; }
+        if (h > pal[pal.length - 1].h) { c0 = c1 = pal[pal.length - 1]; }
+      }
+      const t = c1.h === c0.h ? 0 : clamp((h - c0.h) / (c1.h - c0.h), 0, 1);
+      let r = lerp(c0.c[0], c1.c[0], t);
+      let g = lerp(c0.c[1], c1.c[1], t);
+      let b = lerp(c0.c[2], c1.c[2], t);
+      world.normalAt(x, z, norm);
+      const shade = 0.5 + 0.6 * clamp(norm.x * 0.5 + norm.y * 0.62 + norm.z * 0.45, 0, 1);
+      r *= shade; g *= shade; b *= shade;
+      if (h < waterLevel) {
+        r = (((wc >> 16) & 255) / 255) * 0.7;
+        g = (((wc >> 8) & 255) / 255) * 0.85;
+        b = ((wc & 255) / 255) * 0.95;
+      }
+      const o = (j * N + i) * 4;
+      img.data[o] = Math.min(255, r * 255);
+      img.data[o + 1] = Math.min(255, g * 255);
+      img.data[o + 2] = Math.min(255, b * 255);
+      img.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
 }

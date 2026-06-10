@@ -117,7 +117,7 @@ export function buildWorld(map) {
         if (d > radius) continue;
         const q = d / radius;
         const bowl = -depth * (Math.cos(Math.min(1, q) * Math.PI) * 0.5 + 0.5);
-        const rim = depth * 0.12 * Math.exp(-(((q - 0.95) / 0.16) ** 2));
+        const rim = depth * 0.05 * Math.exp(-(((q - 0.95) / 0.2) ** 2));
         offsets[idx] = clamp(offsets[idx] + bowl + rim, -90, 60);
       }
     }

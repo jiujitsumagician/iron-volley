@@ -114,21 +114,39 @@ export class Hud {
     if (performance.now() > this.toastUntil) this.toastEl.style.opacity = 0;
   }
 
-  /** Bottom-right radar: friendly (own faction) blue, enemy red. */
-  drawMinimap(viewer, tanks, worldSize) {
+  /** Bottom-right radar: terrain relief, friendly blue, enemy red, plus
+   *  the cannon landing-target circle. */
+  drawMinimap(viewer, tanks, worldSize, landing, terrainImg) {
     const ctx = this.mmCtx;
     if (!ctx) return;
     const S = this.mmCanvas.width;
     const half = worldSize / 2;
     ctx.clearRect(0, 0, S, S);
+    // shaded-relief terrain background
+    if (terrainImg) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.globalAlpha = 0.92;
+      ctx.drawImage(terrainImg, 0, 0, S, S);
+      ctx.globalAlpha = 1;
+    }
     // sweep grid
-    ctx.strokeStyle = "rgba(120,170,140,.16)";
+    ctx.strokeStyle = "rgba(150,210,180,.14)";
     ctx.lineWidth = 1;
     for (let g = 1; g < 4; g++) {
       const p = (g / 4) * S;
       ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, S); ctx.moveTo(0, p); ctx.lineTo(S, p); ctx.stroke();
     }
     const map = (wx, wz) => [(wx / half * 0.5 + 0.5) * S, (wz / half * 0.5 + 0.5) * S];
+    // cannon landing target
+    if (landing && landing.show) {
+      const [lx, ly] = map(landing.x, landing.z);
+      const rr = Math.max(2.5, (landing.r / worldSize) * S);
+      ctx.strokeStyle = "rgba(255,70,70,.95)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(lx, ly, rr, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "rgba(255,70,70,.55)";
+      ctx.beginPath(); ctx.arc(lx, ly, 1.6, 0, Math.PI * 2); ctx.fill();
+    }
     for (const t of tanks) {
       if (!t.alive) continue;
       const [mx, my] = map(t.pos.x, t.pos.z);

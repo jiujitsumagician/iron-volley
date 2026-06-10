@@ -86,7 +86,7 @@ export class Menu {
       <div class="logo">Iron Volley</div>
       <div class="tagline">Arc the shell. Erase the hill. Win the war.</div>
       <div class="menu-section">
-        <div class="choices">
+        <div class="choices vstack">
           <div class="choice" data-v="solo">
             <div class="big">⚔ SOLO OPS</div>
             <div class="sub">You vs computer-controlled tanks</div>
@@ -97,16 +97,9 @@ export class Menu {
           </div>
           <div class="choice" data-v="options">
             <div class="big">⚙ OPTIONS</div>
-            <div class="sub">Gamepad layout · audio</div>
+            <div class="sub">Controls · gamepad · audio</div>
           </div>
         </div>
-      </div>
-      <div class="hint">
-        ${this.gamepads?.anyPadConnected() ? "🎮 GAMEPAD DETECTED — sticks drive &amp; aim, RT fires, LT machine-guns. Remap in OPTIONS." : "Plug in a gamepad any time — it just works."}
-        <br/><br/>
-        P1 <kbd>W A S D</kbd> drive · <kbd>Q</kbd><kbd>E</kbd> turret · <kbd>R</kbd><kbd>F</kbd> elevation · <kbd>SPACE</kbd> fire · <kbd>L-SHIFT</kbd> MG · <kbd>C</kbd> view
-        &nbsp;&nbsp;|&nbsp;&nbsp;
-        P2 <kbd>ARROWS</kbd> · <kbd>,</kbd><kbd>.</kbd> turret · <kbd>'</kbd><kbd>;</kbd> elevation · <kbd>ENTER</kbd> fire · <kbd>/</kbd> MG · <kbd>P</kbd> view
       </div>
     `);
     this.bindChoices((v) => {
@@ -114,6 +107,35 @@ export class Menu {
       this.state = { mode: v, players: [] };
       this.tankSelect(0);
     });
+  }
+
+  controls() {
+    this.panel(`
+      <div class="logo" style="font-size:42px;">Controls</div>
+      <div class="tagline">keyboard &amp; gamepad</div>
+      <div class="menu-section">
+        <table class="ctrl">
+          <tr><th></th><th>Player 1</th><th>Player 2</th></tr>
+          <tr><td>Drive</td><td>W A S D</td><td>Arrow keys</td></tr>
+          <tr><td>Turret</td><td>Q / E</td><td>, / .</td></tr>
+          <tr><td>Barrel elevation</td><td>R / F</td><td>' / ;</td></tr>
+          <tr><td>Fire cannon</td><td>Space</td><td>Enter</td></tr>
+          <tr><td>Machine gun (hold)</td><td>Left Shift</td><td>/</td></tr>
+          <tr><td>Camera (1st / 3rd)</td><td>C</td><td>P</td></tr>
+          <tr><td>Pause</td><td>Esc</td><td>Esc</td></tr>
+        </table>
+      </div>
+      <div class="menu-section">
+        <div class="menu-title">Gamepad</div>
+        <div class="sub" style="max-width:560px; margin:0 auto; line-height:1.7;">
+          Left stick drives · right stick aims turret &amp; elevation · <b>RT</b> fires ·
+          <b>LT</b> machine gun · <b>Y</b> toggles camera · <b>Start</b> pauses.
+          Remap the buttons back in Options.
+        </div>
+      </div>
+      <div class="row-actions"><button class="btn" data-back>← Back</button></div>
+    `);
+    this.el.querySelector("[data-back]").onclick = () => this.options();
   }
 
   // ── options: gamepad layout + audio ─────────────────────────
@@ -148,6 +170,10 @@ export class Menu {
             <div class="big">FRIENDLY FIRE</div>
             <div class="sub rebind-val">${loadFF() ? "ON" : "OFF"}</div>
             <div class="sub" style="color:#76879a;">off = same-side tanks can't damage each other</div>
+          </div>
+          <div class="choice" data-show-controls style="min-width:240px;">
+            <div class="big">CONTROLS</div>
+            <div class="sub">keyboard &amp; gamepad reference</div>
           </div>
         </div>
       </div>
@@ -208,6 +234,10 @@ export class Menu {
       saveFF(next);
       e.currentTarget.querySelector(".rebind-val").textContent = next ? "ON" : "OFF";
       audio.uiSelect?.({});
+    });
+    this.el.querySelector("[data-show-controls]").addEventListener("click", () => {
+      audio.uiSelect?.({});
+      this.controls();
     });
     this.el.querySelector("[data-reset]").addEventListener("click", () => {
       gm?.resetBindings();

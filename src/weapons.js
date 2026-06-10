@@ -30,6 +30,24 @@ const _dir = new THREE.Vector3();
 const _from = new THREE.Vector3();
 const _AXIS_X = new THREE.Vector3(1, 0, 0);
 const _AXIS_Y = new THREE.Vector3(0, 1, 0);
+const _AXIS_Z = new THREE.Vector3(0, 0, 1);
+const _shellDir = new THREE.Vector3();
+
+// lathe-turned artillery round: cylindrical body + ogive nose, nose on +Z
+function makeShellGeo() {
+  const pts = [
+    new THREE.Vector2(0.001, -0.62),
+    new THREE.Vector2(0.27, -0.5),
+    new THREE.Vector2(0.28, 0.12),
+    new THREE.Vector2(0.22, 0.46),
+    new THREE.Vector2(0.10, 0.74),
+    new THREE.Vector2(0.001, 0.92),
+  ];
+  const g = new THREE.LatheGeometry(pts, 14);
+  g.rotateX(Math.PI / 2);
+  g.computeVertexNormals();
+  return g;
+}
 
 export class Weapons {
   /**
@@ -42,15 +60,20 @@ export class Weapons {
     this.firePools = []; // { x, z, r, until, owner, tickAcc }
     this.gravityWells = []; // { pos, until, owner }
     this.shotsFired = 0; // cumulative — playtest telemetry
-    this.shellGeo = new THREE.SphereGeometry(0.55, 8, 8);
+    this.shellGeo = makeShellGeo();
     this.shellMats = new Map();
   }
 
   shellMat(color) {
     if (!this.shellMats.has(color)) {
+      // machined-metal round: brassy/steel body that catches the light, with
+      // a touch of emissive so the projectile still reads against the terrain
       this.shellMats.set(
         color,
-        new THREE.MeshBasicMaterial({ color })
+        new THREE.MeshStandardMaterial({
+          color, metalness: 0.85, roughness: 0.32,
+          emissive: color, emissiveIntensity: 0.32,
+        })
       );
     }
     return this.shellMats.get(color);
@@ -207,6 +230,11 @@ export class Weapons {
 
       s.pos.addScaledVector(s.vel, dt);
       s.mesh.position.copy(s.pos);
+      // point the nose along the flight path
+      if (s.vel.lengthSq() > 1e-5) {
+        _shellDir.copy(s.vel).normalize();
+        s.mesh.quaternion.setFromUnitVectors(_AXIS_Z, _shellDir);
+      }
 
       // smoke trail
       s.trailAcc += dt;

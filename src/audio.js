@@ -159,43 +159,54 @@ function cannon(opts) {
   if (!v) return;
   const ac = v.ac;
   const t = ac.currentTime;
-  const sub = osc(ac, "sine", 115);
+  const sub = osc(ac, "sine", 80);
   const subG = ac.createGain();
-  sub.frequency.exponentialRampToValueAtTime(52, t + 0.26);
-  env(subG.gain, t, [[0, 0.85], [0.035, 1.2], [0.5, EPS]]);
+  sub.frequency.exponentialRampToValueAtTime(20, t + 0.1);
+  sub.frequency.setValueAtTime(20, t + 0.1);
+  env(subG.gain, t, [[0, 1.4], [0.04, 1.1], [0.5, 0.4], [1.8, EPS]]);
   sub.connect(subG).connect(v.input);
-
-  const crack = osc(ac, "square", 190);
+  const body = osc(ac, "sine", 140);
+  const bodyG = ac.createGain();
+  body.frequency.exponentialRampToValueAtTime(55, t + 0.18);
+  env(bodyG.gain, t, [[0, 0.9], [0.05, 0.7], [0.45, EPS]]);
+  body.connect(bodyG).connect(v.input);
+  const crack = filteredNoise(ac, "bandpass", 3200, 3.5);
   const crackG = ac.createGain();
-  const crackF = ac.createBiquadFilter();
-  crackF.type = "bandpass";
-  crackF.frequency.value = 850;
-  crackF.Q.value = 1.2;
-  env(crackG.gain, t, [[0, 0.45], [0.018, EPS]]);
-  crack.connect(crackF).connect(crackG).connect(v.input);
-
-  const n = filteredNoise(ac, "lowpass", 1400, 0.7);
-  const nG = ac.createGain();
-  env(nG.gain, t, [[0, 0.38], [0.06, 0.24], [0.62, EPS]]);
-  n.filter.frequency.exponentialRampToValueAtTime(180, t + 0.62);
-  n.filter.connect(nG).connect(v.input);
-
-  sub.start(t); sub.stop(t + 0.56);
-  crack.start(t); crack.stop(t + 0.04);
-  n.src.start(t); n.src.stop(t + 0.66);
-  cleanup(v.out, t + 0.72);
+  env(crackG.gain, t, [[0, 0.9], [0.002, 0.5], [0.012, EPS]]);
+  crack.filter.connect(crackG).connect(v.input);
+  const rumble = filteredNoise(ac, "lowpass", 900, 0.6);
+  const rumbleG = ac.createGain();
+  env(rumbleG.gain, t, [[0, 0.55], [0.08, 0.8], [0.6, 0.4], [1.9, EPS]]);
+  rumble.filter.frequency.exponentialRampToValueAtTime(90, t + 1.9);
+  rumble.filter.connect(rumbleG).connect(v.input);
+  const bite = filteredNoise(ac, "bandpass", 420, 1.4);
+  const biteG = ac.createGain();
+  env(biteG.gain, t, [[0, 0.6], [0.05, 0.3], [0.28, EPS]]);
+  bite.filter.connect(biteG).connect(v.input);
+  sub.start(t); sub.stop(t + 1.9);
+  body.start(t); body.stop(t + 0.5);
+  crack.src.start(t); crack.src.stop(t + 0.02);
+  rumble.src.start(t); rumble.src.stop(t + 2.0);
+  bite.src.start(t); bite.src.stop(t + 0.32);
+  cleanup(v.out, t + 2.1);
 }
 
 function mg(opts) {
-  const v = voice(opts, 0.75);
+  const v = voice(opts, 0.72);
   if (!v) return;
   const ac = v.ac;
   const t = ac.currentTime;
-  const n = filteredNoise(ac, "bandpass", 1800 + Math.random() * 700, 2.6);
+  const thmpOsc = osc(ac, "sine", 95);
+  const thmpG = ac.createGain();
+  thmpOsc.frequency.exponentialRampToValueAtTime(38, t + 0.055);
+  env(thmpG.gain, t, [[0, 0.55], [0.012, 0.3], [0.06, EPS]]);
+  thmpOsc.connect(thmpG).connect(v.input);
+  const n = filteredNoise(ac, "bandpass", 1600 + Math.random() * 800, 2.2);
   const g = ac.createGain();
-  env(g.gain, t, [[0, 0.7], [0.012, 0.32], [0.07, EPS]]);
+  env(g.gain, t, [[0, 0.6], [0.01, 0.28], [0.07, EPS]]);
   n.filter.connect(g).connect(v.input);
-  n.src.start(t); n.src.stop(t + 0.085);
+  thmpOsc.start(t); thmpOsc.stop(t + 0.07);
+  n.src.start(t); n.src.stop(t + 0.09);
   cleanup(v.out, t + 0.12);
 }
 
@@ -226,32 +237,29 @@ function laser(opts) {
 
 function explosion(size = 0.5, opts) {
   const s = clamp(size);
-  const v = voice(opts, 0.9 + s * 0.45);
+  const v = voice(opts, 0.85 + s * 0.5);
   if (!v) return;
   const ac = v.ac;
   const t = ac.currentTime;
-  const dur = 0.4 + s * 1.2;
-  const sub = osc(ac, "sine", 92 - s * 18);
+  const dur = 0.45 + s * 1.4;
+  const sub = osc(ac, "sine", 78 - s * 20);
   const subG = ac.createGain();
-  sub.frequency.exponentialRampToValueAtTime(28 - s * 8, t + dur * 0.55);
-  env(subG.gain, t, [[0, 0.5 + s * 0.7], [0.08, 1], [dur * 0.8, EPS]]);
+  sub.frequency.exponentialRampToValueAtTime(22 - s * 6, t + dur * 0.5);
+  env(subG.gain, t, [[0, 0.6 + s * 0.9], [0.07, 1.1 + s * 0.3], [dur * 0.75, EPS]]);
   sub.connect(subG).connect(v.input);
-
-  const n = filteredNoise(ac, "lowpass", 2400 - s * 650, 0.5);
+  const n = filteredNoise(ac, "lowpass", 2200 - s * 600, 0.5);
   const ng = ac.createGain();
-  env(ng.gain, t, [[0, 0.95], [0.05, 0.75], [dur, EPS]]);
-  n.filter.frequency.exponentialRampToValueAtTime(130 + s * 80, t + dur);
+  env(ng.gain, t, [[0, 1.0], [0.06, 0.8], [dur, EPS]]);
+  n.filter.frequency.exponentialRampToValueAtTime(110 + s * 90, t + dur);
   n.filter.connect(ng).connect(v.input);
-
-  const crunch = filteredNoise(ac, "bandpass", 120 + s * 120, 5);
+  const crunch = filteredNoise(ac, "bandpass", 100 + s * 140, 4.5);
   const cg = ac.createGain();
-  env(cg.gain, t, [[0.02, 0.5], [0.18 + s * 0.12, EPS]]);
+  env(cg.gain, t, [[0, EPS], [0.005, 0.7 + s * 0.3], [0.22 + s * 0.14, EPS]]);
   crunch.filter.connect(cg).connect(v.input);
-
-  sub.start(t); sub.stop(t + dur);
-  n.src.start(t); n.src.stop(t + dur + 0.04);
-  crunch.src.start(t); crunch.src.stop(t + dur * 0.35);
-  cleanup(v.out, t + dur + 0.12);
+  sub.start(t); sub.stop(t + dur + 0.05);
+  n.src.start(t); n.src.stop(t + dur + 0.06);
+  crunch.src.start(t); crunch.src.stop(t + dur * 0.4);
+  cleanup(v.out, t + dur + 0.14);
 }
 
 function nuke(opts) {
@@ -370,23 +378,40 @@ function reload(opts) {
 }
 
 function death(opts) {
-  explosion(0.8, opts);
-  const v = voice(opts, 0.55);
+  explosion(1.0, opts);
+  const v = voice(opts, 0.7);
   if (!v) return;
   const ac = v.ac;
   const t = ac.currentTime;
-  [-12, 9].forEach((detune) => {
-    const o = osc(ac, "sawtooth", 130, detune);
+  const subDet = osc(ac, "sine", 55);
+  const subDetG = ac.createGain();
+  subDet.frequency.exponentialRampToValueAtTime(16, t + 0.25);
+  env(subDetG.gain, t, [[0, 1.2], [0.06, 0.9], [0.8, EPS]]);
+  subDet.connect(subDetG).connect(v.input);
+  const crack = filteredNoise(ac, "bandpass", 2800, 4.0);
+  const crackG = ac.createGain();
+  env(crackG.gain, t, [[0, 1.0], [0.003, 0.5], [0.018, EPS]]);
+  crack.filter.connect(crackG).connect(v.input);
+  const debris = filteredNoise(ac, "bandpass", 900, 2.0);
+  const debrisG = ac.createGain();
+  env(debrisG.gain, t, [[0.05, 0.55], [0.35, 0.65], [1.6, EPS]]);
+  debris.filter.frequency.exponentialRampToValueAtTime(140, t + 1.6);
+  debris.filter.connect(debrisG).connect(v.input);
+  [-8, 11].forEach((detune) => {
+    const o = osc(ac, "sawtooth", 100, detune);
     const f = ac.createBiquadFilter();
     const g = ac.createGain();
     f.type = "lowpass";
-    f.frequency.value = 420;
-    o.frequency.exponentialRampToValueAtTime(42, t + 1.15);
-    env(g.gain, t, [[0, 0.34], [1.2, EPS]]);
+    f.frequency.value = 320;
+    o.frequency.exponentialRampToValueAtTime(32, t + 1.4);
+    env(g.gain, t, [[0, 0.3], [1.4, EPS]]);
     o.connect(f).connect(g).connect(v.input);
-    o.start(t); o.stop(t + 1.25);
+    o.start(t); o.stop(t + 1.5);
   });
-  cleanup(v.out, t + 1.35);
+  subDet.start(t); subDet.stop(t + 0.9);
+  crack.src.start(t); crack.src.stop(t + 0.025);
+  debris.src.start(t); debris.src.stop(t + 1.7);
+  cleanup(v.out, t + 1.8);
 }
 
 function uiMove(opts) {
@@ -440,38 +465,79 @@ function engineStart() {
   if (!usable()) {
     return { setIntensity() {}, setPan() {}, stop() {} };
   }
-  const ac = /** @type {AudioContext} */ (ctx);
+  const ac = ctx;
   const t = ac.currentTime;
   const out = ac.createGain();
   const pan = ac.createStereoPanner();
-  const saw = osc(ac, "sawtooth", 55);
-  const lfo = osc(ac, "sine", 5.2);
-  const lfoG = ac.createGain();
-  const n = noiseSource(ac, true);
-  const nf = ac.createBiquadFilter();
-  const ng = ac.createGain();
+  out.connect(pan);
+  pan.connect(compressor);
+  out.gain.value = 0.15;
+  const rumbleOsc = osc(ac, "sine", 32);
+  const chugLfo = osc(ac, "sine", 7.5);
+  const chugLfoG = ac.createGain();
+  chugLfoG.gain.value = 0.25;
+  const chugBias = ac.createConstantSource();
+  chugBias.offset.value = 0.5;
+  const chugMod = ac.createGain();
+  chugMod.gain.value = 1;
+  chugBias.connect(chugMod);
+  chugLfo.connect(chugLfoG).connect(chugMod);
+  const chugDepth = ac.createGain();
+  chugDepth.gain.value = 0;
+  chugMod.connect(chugDepth.gain);
+  rumbleOsc.connect(chugDepth).connect(out);
+  const buzzOsc = osc(ac, "sawtooth", 85);
+  const buzzF = ac.createBiquadFilter();
+  const buzzG = ac.createGain();
+  buzzF.type = "lowpass";
+  buzzF.frequency.value = 280;
+  buzzF.Q.value = 1.2;
+  buzzG.gain.value = 0.12;
+  buzzOsc.connect(buzzF).connect(buzzG).connect(out);
+  const treadNoise = noiseSource(ac, true);
+  const treadBP = ac.createBiquadFilter();
+  treadBP.type = "bandpass";
+  treadBP.frequency.value = 1100;
+  treadBP.Q.value = 3.5;
+  const treadG = ac.createGain();
+  treadG.gain.value = 0.0;
+  const treadLfo = osc(ac, "square", 3.5);
+  const treadLfoG = ac.createGain();
+  treadLfoG.gain.value = 0.5;
+  const treadBias = ac.createConstantSource();
+  treadBias.offset.value = 0.5;
+  const treadMod = ac.createGain();
+  treadMod.gain.value = 1;
+  treadBias.connect(treadMod);
+  treadLfo.connect(treadLfoG).connect(treadMod);
+  const treadGateG = ac.createGain();
+  treadGateG.gain.value = 0;
+  treadMod.connect(treadGateG.gain);
+  treadNoise.connect(treadBP).connect(treadGateG).connect(treadG).connect(out);
+  rumbleOsc.start(t);
+  chugLfo.start(t);
+  chugBias.start(t);
+  buzzOsc.start(t);
+  treadNoise.start(t);
+  treadLfo.start(t);
+  treadBias.start(t);
   let stopped = false;
-
-  out.gain.value = EPS;
-  lfoG.gain.value = 2.5;
-  nf.type = "lowpass";
-  nf.frequency.value = 260;
-  ng.gain.value = 0.025;
-  lfo.connect(lfoG).connect(saw.frequency);
-  saw.connect(out);
-  n.connect(nf).connect(ng).connect(out);
-  out.connect(pan).connect(/** @type {DynamicsCompressorNode} */ (compressor));
-  saw.start(t); lfo.start(t); n.start(t);
-
   const handle = {
     setIntensity(v) {
       if (stopped) return;
       const x = clamp(v);
       const at = ac.currentTime;
-      saw.frequency.setTargetAtTime(55 + x * 55, at, 0.08);
-      nf.frequency.setTargetAtTime(180 + x * 520, at, 0.08);
-      ng.gain.setTargetAtTime(0.012 + x * 0.055, at, 0.08);
-      out.gain.setTargetAtTime(EPS + x * 0.32, at, 0.08);
+      const tc = 0.12;
+      rumbleOsc.frequency.setTargetAtTime(28 + x * 14, at, tc);
+      chugLfo.frequency.setTargetAtTime(6 + x * 4, at, tc);
+      buzzOsc.frequency.setTargetAtTime(75 + x * 40, at, tc);
+      buzzF.frequency.setTargetAtTime(200 + x * 400, at, tc);
+      buzzG.gain.setTargetAtTime(0.08 + x * 0.14, at, tc);
+      treadLfo.frequency.setTargetAtTime(2.5 + x * 11.5, at, tc);
+      treadBP.frequency.setTargetAtTime(900 + x * 800, at, tc);
+      treadBP.Q.value = 2.5 + x * 3;
+      treadG.gain.setTargetAtTime(x * x * 0.18, at, tc);
+      out.gain.setTargetAtTime(0.14 + x * 0.18, at, tc);
     },
     setPan(p) {
       if (stopped) return;
@@ -481,14 +547,19 @@ function engineStart() {
       if (stopped) return;
       stopped = true;
       const at = ac.currentTime;
-      out.gain.setTargetAtTime(EPS, at, 0.05);
-      saw.stop(at + 0.22);
-      lfo.stop(at + 0.22);
-      n.stop(at + 0.22);
-      cleanup(out, at + 0.28);
+      out.gain.setTargetAtTime(EPS, at, 0.06);
+      const stopAt = at + 0.28;
+      rumbleOsc.stop(stopAt);
+      chugLfo.stop(stopAt);
+      chugBias.stop(stopAt);
+      buzzOsc.stop(stopAt);
+      treadNoise.stop(stopAt);
+      treadLfo.stop(stopAt);
+      treadBias.stop(stopAt);
+      cleanup(out, stopAt);
     },
   };
-  handle.setIntensity(0.35);
+  handle.setIntensity(0);
   return handle;
 }
 

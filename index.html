@@ -68,6 +68,15 @@
   .menu-section { margin-top: 28px; }
   .menu-title { font-size: 12px; letter-spacing: .3em; color: #76879a; text-transform: uppercase; margin-bottom: 14px; }
   .choices { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  /* vertical menu stack (title screen) */
+  .choices.vstack { flex-direction: column; align-items: stretch; flex-wrap: nowrap; max-width: 440px; margin: 0 auto; }
+  .choices.vstack .choice { text-align: left; padding: 16px 22px; }
+  /* controls reference table */
+  .ctrl { margin: 6px auto 0; border-collapse: collapse; }
+  .ctrl td, .ctrl th { padding: 7px 22px; border-bottom: 1px solid #232c38; font-size: 13px; text-align: left; }
+  .ctrl th { font-size: 10px; letter-spacing: .22em; color: #76879a; text-transform: uppercase; }
+  .ctrl td:first-child { color: #9fb0c2; }
+  .ctrl td:not(:first-child) { color: #e8eef4; font-weight: 600; }
   .choice {
     min-width: 150px;
     padding: 14px 18px;

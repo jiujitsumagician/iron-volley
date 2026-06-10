@@ -50,6 +50,9 @@ export class AimPreview {
     this.cross.renderOrder = 5;
     scene.add(this.cross);
 
+    // shared with the minimap so the landing target shows on the radar
+    // (must exist before hide() touches it)
+    this.landing = { x: 0, z: 0, r: 0, show: false };
     this.hide();
 
     this._muzzle = new THREE.Vector3();
@@ -64,6 +67,7 @@ export class AimPreview {
     this.line.visible = false;
     this.ring.visible = false;
     this.cross.visible = false;
+    this.landing.show = false;
   }
 
   update(tank, mgMode, dt) {
@@ -72,6 +76,7 @@ export class AimPreview {
     if (mgMode) {
       this.line.visible = false;
       this.ring.visible = false;
+      this.landing.show = false;
       this._mgCrosshair(tank);
     } else {
       this.cross.visible = false;
@@ -134,6 +139,7 @@ export class AimPreview {
     this.ring.position.set(x, y, z);
     this.ring.scale.setScalar(radius * pulse);
     this.ring.visible = true;
+    this.landing.x = x; this.landing.z = z; this.landing.r = radius; this.landing.show = true;
   }
 
   _mgCrosshair(tank) {
