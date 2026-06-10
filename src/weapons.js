@@ -51,9 +51,11 @@ export class Weapons {
   }
 
   /** Fire the main cannon with the tank's current round. */
-  fireCannon(tank) {
+  fireCannon(tank, opts = {}) {
     if (!tank.canFire()) return false;
-    const type = tank.special?.type ?? "standard";
+    // bots pass allowSpecial:false at unsafe ranges so they don't
+    // delete themselves with their own nuke
+    const type = (opts.allowSpecial === false ? null : tank.special?.type) ?? "standard";
     const def = ROUND_TYPES[type];
 
     const muzzle = tank.muzzleWorld(new THREE.Vector3());
@@ -297,7 +299,7 @@ export class Weapons {
         fx.explosion(p, { radius: r });
         this.ctx.audio.explosion(s.small ? 0.3 : 0.5, {});
         if (directHitTank) this.applyDamage(directHitTank, s.owner.chassis.stats.shellDamage * (s.small ? 0.4 : 1), s.owner, "AP SHELL");
-        this.splash(p, r + 5, s.owner.chassis.stats.shellDamage * (s.small ? 0.35 : 0.7), s.owner, "AP SHELL", directHitTank);
+        this.splash(p, r + 5, s.owner.chassis.stats.shellDamage * (s.small ? 0.4 : 0.85), s.owner, "AP SHELL", directHitTank);
         break;
       }
       case "scatter": {

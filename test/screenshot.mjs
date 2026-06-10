@@ -47,6 +47,26 @@ for (const t of targets) {
   console.log(`shot: ${t.name}.png`);
 }
 
+// menu flow: tank select (thumbnails), map select, options
+await page.goto(`${BASE}/`, { waitUntil: "load" });
+await page.waitForTimeout(1200);
+await page.click('[data-v="solo"]');
+await page.waitForTimeout(1400);
+await page.screenshot({ path: "test/shots/menu-tanks.png" });
+console.log("shot: menu-tanks.png");
+await page.click('[data-v="viper"]');
+await page.waitForTimeout(400);
+await page.click('[data-v="3"]');
+await page.waitForTimeout(2500);
+await page.screenshot({ path: "test/shots/menu-maps.png" });
+console.log("shot: menu-maps.png");
+await page.goto(`${BASE}/`, { waitUntil: "load" });
+await page.waitForTimeout(1000);
+await page.click('[data-v="options"]');
+await page.waitForTimeout(500);
+await page.screenshot({ path: "test/shots/menu-options.png" });
+console.log("shot: menu-options.png");
+
 await browser.close();
 server.kill();
 

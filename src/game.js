@@ -11,6 +11,7 @@ import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildWorld } from "./terrain.js";
 import { mapById, WORLD_SIZE } from "./maps.js";
 import { Tank } from "./tank.js";
@@ -26,11 +27,23 @@ import { clamp, lerp, rand, pick } from "./util.js";
 
 const BOT_NAMES = ["RUSTY", "MAMBA", "DOZER", "WIDOW", "TUSK", "HAVOC", "GRIT", "ECHO"];
 
+// one shared PMREM environment per renderer lifetime
+let _envMap = null;
+function getEnvMap(renderer) {
+  if (!_envMap) {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    _envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+  }
+  return _envMap;
+}
+
 export class Game {
-  constructor(renderer, config, onMatchEnd) {
+  constructor(renderer, config, onMatchEnd, gamepads = null) {
     this.renderer = renderer;
     this.config = config;
     this.onMatchEnd = onMatchEnd;
+    this.gamepads = gamepads;
     this.map = mapById(config.mapId);
     this.killTarget = config.killTarget ?? 10;
     this.over = false;
@@ -38,8 +51,14 @@ export class Game {
 
     // ── scene ────────────────────────────────────────────────
     this.scene = new THREE.Scene();
+    // image-based environment lighting — metals and armor pick up
+    // believable reflections everywhere
+    this.scene.environment = getEnvMap(renderer);
+    this.scene.environmentIntensity = 0.5;
     const built = buildWorld(this.map);
     this.scene.add(built.group);
+    this.built = built;
+    this.waveT = 0;
     this.scene.fog = new THREE.Fog(this.map.fog.color, this.map.fog.near, this.map.fog.far);
 
     const hemi = new THREE.HemisphereLight(this.map.hemi.sky, this.map.hemi.ground, this.map.hemi.intensity);
@@ -251,9 +270,19 @@ export class Game {
     const frozen = this.startFreeze > 0 || this.over;
 
     // ── control ──────────────────────────────────────────────
-    for (const p of this.players) {
-      if (this.config.autoPilot) break; // brains drive everyone
+    this.players.forEach((p, i) => {
+      if (this.config.autoPilot) return; // brains drive everyone
       const read = this.input.read(p.keys);
+      // gamepad overlays the keyboard: whichever input is active wins
+      if (this.gamepads?.padConnected(i)) {
+        const pad = this.gamepads.read(i);
+        if (Math.abs(pad.throttle) > Math.abs(read.throttle)) read.throttle = pad.throttle;
+        if (Math.abs(pad.steer) > Math.abs(read.steer)) read.steer = pad.steer;
+        if (Math.abs(pad.turretTurn) > Math.abs(read.turretTurn)) read.turretTurn = pad.turretTurn;
+        if (Math.abs(pad.pitch) > Math.abs(read.pitch)) read.pitch = pad.pitch;
+        read.fire = read.fire || pad.fire;
+        read.mg = read.mg || pad.mg;
+      }
       if (frozen) { read.throttle = 0; read.fire = false; read.mg = false; }
       p.tank.input = read;
       if (read.fire) {
@@ -263,11 +292,13 @@ export class Game {
       }
       if (read.mg) this.weapons.fireMg(p.tank, dt);
       p.engine?.setIntensity?.(Math.abs(p.tank.speed) / p.tank.chassis.stats.speed);
-    }
+    });
     if (!frozen) {
       for (const b of this.bots) {
         b.brain.update(dt, this.world, this.weapons, this.pickups);
-        if (b.tank.input.fire) this.weapons.fireCannon(b.tank);
+        if (b.tank.input.fire) {
+          this.weapons.fireCannon(b.tank, { allowSpecial: b.brain.specialSafe !== false });
+        }
         if (b.tank.input.mg) this.weapons.fireMg(b.tank, dt);
       }
     }
@@ -291,6 +322,22 @@ export class Game {
     this.pickups.update(dt);
     this.effects.update(dt);
     this.input.endFrame();
+
+    // living water: gentle swell on liquids, heat-pulse on lava/energy
+    const wm = this.built.waterMesh;
+    if (wm && !this.map.water?.frozen) {
+      this.waveT += dt;
+      const pos = wm.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i);
+        pos.setZ(i, Math.sin(this.waveT * 1.4 + x * 0.025 + y * 0.02) * 0.55);
+      }
+      pos.needsUpdate = true;
+      if (this.map.water?.emissive) {
+        wm.material.emissiveIntensity =
+          this.map.water.emissive * (0.85 + 0.15 * Math.sin(this.waveT * 2.4));
+      }
+    }
 
     // shadow camera follows the action centroid
     const focus = this.players[0]?.tank.pos ?? new THREE.Vector3();

@@ -71,6 +71,7 @@ export function buildWorld(map) {
     vertexColors: true,
     roughness: 0.96,
     metalness: 0.02,
+    map: detailTexture(),
   });
   const terrainMesh = new THREE.Mesh(geo, mat);
   terrainMesh.receiveShadow = true;
@@ -116,12 +117,117 @@ export function buildWorld(map) {
   const sky = makeSkyDome(map);
   group.add(sky);
 
+  // ── clouds for daylight maps ─────────────────────────────────
+  if (!map.stars && !map.embers) group.add(buildClouds(map));
+
+  // ── grass for the green map ──────────────────────────────────
+  if (map.grass) group.add(buildGrass(map, heightAt));
+
   // ── props ────────────────────────────────────────────────────
   const obstacles = []; // { x, z, r, h } cylinders for collision
   const propGroup = buildProps(map, heightAt, obstacles);
   group.add(propGroup);
 
   return { group, heightAt, normalAt, obstacles, waterMesh, terrainMesh };
+}
+
+// ── shared micro-noise detail texture (multiplies vertex colors) ──
+let _detailTex = null;
+function detailTexture() {
+  if (_detailTex) return _detailTex;
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const ctx = c.getContext("2d");
+  const img = ctx.createImageData(256, 256);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = 225 + Math.random() * 30;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+    img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  _detailTex = new THREE.CanvasTexture(c);
+  _detailTex.wrapS = _detailTex.wrapT = THREE.RepeatWrapping;
+  _detailTex.repeat.set(110, 110);
+  return _detailTex;
+}
+
+// ── soft billboard clouds ──────────────────────────────────────
+let _cloudTex = null;
+function cloudTexture() {
+  if (_cloudTex) return _cloudTex;
+  const c = document.createElement("canvas");
+  c.width = 256; c.height = 128;
+  const ctx = c.getContext("2d");
+  for (let i = 0; i < 16; i++) {
+    const x = 30 + Math.random() * 196, y = 40 + Math.random() * 50;
+    const r = 18 + Math.random() * 30;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, "rgba(255,255,255,0.55)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 256, 128);
+  }
+  _cloudTex = new THREE.CanvasTexture(c);
+  return _cloudTex;
+}
+
+function buildClouds(map) {
+  const g = new THREE.Group();
+  g.name = "clouds";
+  const rng = seededRng(map.seed * 3 + 5);
+  const mat = new THREE.SpriteMaterial({
+    map: cloudTexture(),
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    fog: false,
+  });
+  for (let i = 0; i < 16; i++) {
+    const s = new THREE.Sprite(mat);
+    const a = rng() * Math.PI * 2, r = 300 + rng() * 900;
+    s.position.set(Math.cos(a) * r, 200 + rng() * 130, Math.sin(a) * r);
+    s.scale.set(260 + rng() * 260, 80 + rng() * 70, 1);
+    g.add(s);
+  }
+  return g;
+}
+
+// ── instanced grass tufts (Verdant Vale) ───────────────────────
+function buildGrass(map, heightAt) {
+  const rng = seededRng(map.seed * 11 + 3);
+  const blade = new THREE.PlaneGeometry(2.4, 2.6);
+  blade.translate(0, 1.1, 0);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x3f7a2e,
+    side: THREE.DoubleSide,
+    roughness: 1,
+    alphaTest: 0.0,
+  });
+  const COUNT = 2600;
+  const inst = new THREE.InstancedMesh(blade, mat, COUNT);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  const color = new THREE.Color();
+  let placed = 0, guard = 0;
+  while (placed < COUNT && guard++ < COUNT * 5) {
+    const x = (rng() * 2 - 1) * WORLD_SIZE * 0.45;
+    const z = (rng() * 2 - 1) * WORLD_SIZE * 0.45;
+    const y = heightAt(x, z);
+    if (y < 2 || y > 46) continue; // grass band only
+    q.setFromAxisAngle(up, rng() * Math.PI);
+    const s = 0.7 + rng() * 0.9;
+    m.compose(new THREE.Vector3(x, y - 0.1, z), q, new THREE.Vector3(s, s, s));
+    inst.setMatrixAt(placed, m);
+    color.setHSL(0.27 + rng() * 0.05, 0.55, 0.26 + rng() * 0.12);
+    inst.setColorAt(placed, color);
+    placed++;
+  }
+  inst.count = placed;
+  inst.instanceMatrix.needsUpdate = true;
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  inst.name = "grass";
+  return inst;
 }
 
 function makeSkyDome(map) {

@@ -79,6 +79,10 @@ const soak = await page.evaluate(async () => {
     for (const t of g.tanks) if (t.special) pickupsSeen = true;
     for (const s of g.weapons.shells) if (s.type !== "standard") sawSpecialShell = true;
     if (g.weapons.firePools.length || g.weapons.gravityWells.length) specialsFired = true;
+    // matches are paced for humans (first-to-10 ≈ a 15-minute session);
+    // after 120s of organic war, collapse the finish line so we verify
+    // the END FLOW deterministically rather than bot hyper-lethality
+    if (simSeconds === 120) g.game.killTarget = 1;
     if (simSeconds % 8 === 0) await new Promise((r) => setTimeout(r, 0));
   }
   // the victory → end-screen handoff runs on a 1.7s wall-clock timer

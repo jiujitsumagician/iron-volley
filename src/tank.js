@@ -54,6 +54,7 @@ export class Tank {
     this.barrel = this.root.getObjectByName("barrel");
     this.muzzle = this.root.getObjectByName("muzzle");
     this.mgMuzzle = this.root.getObjectByName("mgMuzzle");
+    this.wheels = this.root.userData.wheels ?? [];
   }
 
   /** World position of the cannon muzzle. */
@@ -131,6 +132,9 @@ export class Tank {
     this.mgCooldown = Math.max(0, this.mgCooldown - dt);
     this.mgHeat = Math.max(0, this.mgHeat - dt * 0.55);
 
+    // wheels spin with ground speed
+    for (const w of this.wheels) w.rotation.x += (this.speed / 0.95) * dt;
+
     // ── pose the meshes ──────────────────────────────────────
     const n = world.normalAt(this.pos.x, this.pos.z);
     const forward = new THREE.Vector3(dirX, 0, dirZ);
@@ -186,9 +190,10 @@ function approach(v, target, step) {
   return v;
 }
 
-// ── mesh construction ──────────────────────────────────────────
-function buildTankMesh(b, team) {
+// ── mesh construction (exported for menu thumbnails) ───────────
+export function buildTankMesh(b, team) {
   const root = new THREE.Group();
+  root.userData.wheels = [];
   const body = new THREE.MeshStandardMaterial({ color: team.body, roughness: 0.62, metalness: 0.38 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 0.85, metalness: 0.2 });
   const accent = new THREE.MeshStandardMaterial({
@@ -233,11 +238,13 @@ function buildTankMesh(b, team) {
     root.add(track);
     // wheels
     for (let i = 0; i < b.wheels; i++) {
-      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.6, 12), dark);
-      wheel.rotation.z = Math.PI / 2;
+      const wheelGeo = new THREE.CylinderGeometry(0.95, 0.95, 0.6, 12);
+      wheelGeo.rotateZ(Math.PI / 2); // axle on X — rotation.x is the spin
+      const wheel = new THREE.Mesh(wheelGeo, dark);
       const t = b.wheels === 1 ? 0.5 : i / (b.wheels - 1);
       wheel.position.set(side * (hw + 0.56), 0.95, lerp(-b.hullL * 0.42, b.hullL * 0.42, t));
       root.add(wheel);
+      root.userData.wheels.push(wheel);
     }
     // fender skirts on plated builds
     if (b.plated) {

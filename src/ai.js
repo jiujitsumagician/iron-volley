@@ -169,6 +169,11 @@ export class BotBrain {
       if (aligned && t.canFire() && Math.random() < dt * 10 * this.difficulty) {
         inp.fire = true;
       }
+
+      // weapon discipline: don't fire area specials inside their own
+      // blast radius — fall back to AP until the range opens up
+      const SAFE_RANGE = { nuke: 170, incendiary: 55, scatter: 55, gravity: 60, laser: 0 };
+      this.specialSafe = !t.special || d > (SAFE_RANGE[t.special.type] ?? 0);
     }
 
     // machine gun at knife range with rough alignment

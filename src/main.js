@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { Game } from "./game.js";
 import { Menu } from "./menu.js";
 import { audio } from "./audio.js";
+import { GamepadManager } from "./gamepad.js";
 
 // ── renderer ─────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -22,6 +23,16 @@ window.addEventListener("resize", () => {
 });
 
 audio.init?.();
+// restore saved volumes
+try {
+  const vols = JSON.parse(localStorage.getItem("iv.audio") ?? "null");
+  if (vols) {
+    audio.setVolume?.(vols.master / 100);
+    audio.setMusicVolume?.(vols.music / 100);
+  }
+} catch { /* defaults */ }
+
+const gamepads = new GamepadManager();
 
 // ── state machine ────────────────────────────────────────────
 let game = null;
@@ -29,13 +40,13 @@ const menuEl = document.getElementById("menu");
 const endEl = document.getElementById("endscreen");
 const fade = document.getElementById("fade");
 
-const menu = new Menu(menuEl, launchMatch);
+const menu = new Menu(menuEl, launchMatch, gamepads);
 
 function launchMatch(config) {
   fadeOut(() => {
     endEl.style.display = "none";
     game?.dispose();
-    game = new Game(renderer, config, (result) => showEndScreen(result, config));
+    game = new Game(renderer, config, (result) => showEndScreen(result, config), gamepads);
     fadeIn();
   });
 }
@@ -112,6 +123,22 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+
+  gamepads.update();
+  // pads drive the menus + end screen + pause overlay
+  const nav = gamepads.menuInput();
+  if (menuEl.style.display !== "none" && menuEl.style.display !== "") {
+    menu.handlePad(nav);
+  } else if (paused) {
+    if (nav.confirm || nav.start) setPaused(false);
+    else if (nav.back) pauseEl.querySelector("[data-quit]").click();
+  } else if (endEl.style.display === "flex") {
+    if (nav.confirm) endEl.querySelector("[data-again]")?.click();
+    else if (nav.back) endEl.querySelector("[data-menu]")?.click();
+  } else if (game && (gamepads.read(0).pauseEdge || gamepads.read(1).pauseEdge)) {
+    setPaused(!paused);
+  }
+
   if (game && !paused) {
     // __TEST_MANUAL lets the headless playtest step the simulation
     // deterministically (decoupled from SwiftShader frame rate)

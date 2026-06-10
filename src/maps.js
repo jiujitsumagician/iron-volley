@@ -111,6 +111,7 @@ export const MAPS = [
       { h: 95, c: [0.48, 0.47, 0.42] },
     ],
     slopeColor: [0.36, 0.33, 0.24],
+    grass: true,
     height(x, z, fbm) {
       const nx = x / 520, nz = z / 520;
       const downs = fbm(nx, nz) * 46 + fbm(nx * 0.4 + 7, nz * 0.4) * 26;

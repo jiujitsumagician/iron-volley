@@ -9,12 +9,16 @@
 import { CHASSIS } from "./tanks.js";
 import { MAPS } from "./maps.js";
 import { audio } from "./audio.js";
+import { tankThumb, mapThumb } from "./thumbs.js";
 
 export class Menu {
-  constructor(rootEl, onLaunch) {
+  constructor(rootEl, onLaunch, gamepads = null) {
     this.el = rootEl;
     this.onLaunch = onLaunch;
+    this.gamepads = gamepads;
     this.state = {};
+    this.focusables = [];
+    this.focusIdx = -1;
   }
 
   show() {
@@ -30,6 +34,7 @@ export class Menu {
 
   panel(html) {
     this.el.innerHTML = `<div class="panel">${html}</div>`;
+    this.refreshFocusables();
   }
 
   bindChoices(onPick) {
@@ -40,6 +45,39 @@ export class Menu {
         onPick(c.dataset.v, c);
       });
     });
+  }
+
+  // ── gamepad focus navigation ────────────────────────────────
+  refreshFocusables() {
+    this.focusables = [...this.el.querySelectorAll(".choice:not(.disabled):not([style*='pointer-events:none']), .btn, input[type=range]")];
+    this.focusIdx = -1;
+  }
+
+  applyFocus() {
+    this.focusables.forEach((f, i) => f.classList.toggle("focus", i === this.focusIdx));
+    this.focusables[this.focusIdx]?.scrollIntoView?.({ block: "nearest" });
+  }
+
+  /** Called by the main loop with edge-triggered pad input. */
+  handlePad(nav) {
+    if (this.el.style.display === "none" || !this.focusables.length) return;
+    if (nav.down || nav.right) {
+      this.focusIdx = (this.focusIdx + 1) % this.focusables.length;
+      audio.uiMove?.({ gain: 0.3 });
+      this.applyFocus();
+    } else if (nav.up || nav.left) {
+      this.focusIdx = (this.focusIdx - 1 + this.focusables.length) % this.focusables.length;
+      audio.uiMove?.({ gain: 0.3 });
+      this.applyFocus();
+    } else if (nav.confirm) {
+      const f = this.focusables[Math.max(0, this.focusIdx)];
+      if (f?.type === "range") {
+        f.value = Number(f.value) + 10 > 100 ? 0 : Number(f.value) + 10;
+        f.dispatchEvent(new Event("input"));
+      } else f?.click();
+    } else if (nav.back) {
+      this.el.querySelector("[data-back]")?.click();
+    }
   }
 
   // ── screens ─────────────────────────────────────────────────
@@ -55,20 +93,111 @@ export class Menu {
           </div>
           <div class="choice" data-v="versus">
             <div class="big">⚔⚔ SPLIT-SCREEN VERSUS</div>
-            <div class="sub">Two commanders, one keyboard — bots optional</div>
+            <div class="sub">Two commanders — keyboard halves or gamepads</div>
+          </div>
+          <div class="choice" data-v="options">
+            <div class="big">⚙ OPTIONS</div>
+            <div class="sub">Gamepad layout · audio</div>
           </div>
         </div>
       </div>
       <div class="hint">
+        ${this.gamepads?.anyPadConnected() ? "🎮 GAMEPAD DETECTED — sticks drive &amp; aim, RT fires, LT machine-guns. Remap in OPTIONS." : "Plug in a gamepad any time — it just works."}
+        <br/><br/>
         P1 <kbd>W A S D</kbd> drive · <kbd>Q</kbd><kbd>E</kbd> turret · <kbd>R</kbd><kbd>F</kbd> elevation · <kbd>SPACE</kbd> fire · <kbd>L-SHIFT</kbd> MG
         &nbsp;&nbsp;|&nbsp;&nbsp;
         P2 <kbd>ARROWS</kbd> · <kbd>,</kbd><kbd>.</kbd> turret · <kbd>'</kbd><kbd>;</kbd> elevation · <kbd>ENTER</kbd> fire · <kbd>/</kbd> MG
       </div>
     `);
     this.bindChoices((v) => {
+      if (v === "options") return this.options();
       this.state = { mode: v, players: [] };
       this.tankSelect(0);
     });
+  }
+
+  // ── options: gamepad layout + audio ─────────────────────────
+  options() {
+    const gm = this.gamepads;
+    const vols = JSON.parse(localStorage.getItem("iv.audio") ?? '{"master":80,"music":35}');
+    const bindRow = (action, label) => `
+      <div class="choice" data-rebind="${action}" style="min-width:170px;">
+        <div class="big">${label}</div>
+        <div class="sub rebind-val">${gm ? gm.buttonName(gm.bindings[action]) : "—"}</div>
+        <div class="sub" style="color:#76879a;">press to rebind</div>
+      </div>`;
+    this.panel(`
+      <div class="logo" style="font-size:42px;">Options</div>
+      <div class="tagline">${gm?.anyPadConnected() ? "🎮 gamepad connected" : "no gamepad detected — settings still apply"}</div>
+      <div class="menu-section">
+        <div class="menu-title">Gamepad — sticks are fixed (left: drive · right: turret &amp; elevation)</div>
+        <div class="choices">
+          ${bindRow("fire", "FIRE CANNON")}
+          ${bindRow("mg", "MACHINE GUN")}
+          ${bindRow("pause", "PAUSE")}
+          <div class="choice" data-invert style="min-width:170px;">
+            <div class="big">INVERT AIM Y</div>
+            <div class="sub rebind-val">${gm?.bindings.invertY ? "ON" : "OFF"}</div>
+          </div>
+        </div>
+      </div>
+      <div class="menu-section">
+        <div class="menu-title">Audio</div>
+        <div class="choices" style="align-items:center;">
+          <div class="choice" style="pointer-events:auto; cursor:default; min-width:240px;">
+            <div class="sub">MASTER — <span id="vMaster">${vols.master}</span>%</div>
+            <input type="range" id="rMaster" min="0" max="100" value="${vols.master}" style="width:100%;"/>
+          </div>
+          <div class="choice" style="pointer-events:auto; cursor:default; min-width:240px;">
+            <div class="sub">MUSIC — <span id="vMusic">${vols.music}</span>%</div>
+            <input type="range" id="rMusic" min="0" max="100" value="${vols.music}" style="width:100%;"/>
+          </div>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="btn ghost" data-reset>RESET PAD LAYOUT</button>
+        <button class="btn" data-back>DONE</button>
+      </div>
+    `);
+
+    const saveVols = () => localStorage.setItem("iv.audio", JSON.stringify(vols));
+    this.el.querySelector("#rMaster").addEventListener("input", (e) => {
+      vols.master = Number(e.target.value);
+      this.el.querySelector("#vMaster").textContent = vols.master;
+      audio.setVolume?.(vols.master / 100);
+      saveVols();
+    });
+    this.el.querySelector("#rMusic").addEventListener("input", (e) => {
+      vols.music = Number(e.target.value);
+      this.el.querySelector("#vMusic").textContent = vols.music;
+      audio.setMusicVolume?.(vols.music / 100);
+      saveVols();
+    });
+
+    this.el.querySelectorAll("[data-rebind]").forEach((row) => {
+      row.addEventListener("click", () => {
+        if (!gm) return;
+        const action = row.dataset.rebind;
+        const valEl = row.querySelector(".rebind-val");
+        valEl.textContent = "PRESS A BUTTON…";
+        gm.captureNext((btn) => {
+          gm.setBinding(action, btn);
+          valEl.textContent = gm.buttonName(btn);
+          audio.uiSelect?.({});
+        });
+      });
+    });
+    this.el.querySelector("[data-invert]").addEventListener("click", (e) => {
+      if (!gm) return;
+      gm.setBinding("invertY", !gm.bindings.invertY);
+      e.currentTarget.querySelector(".rebind-val").textContent = gm.bindings.invertY ? "ON" : "OFF";
+      audio.uiSelect?.({});
+    });
+    this.el.querySelector("[data-reset]").addEventListener("click", () => {
+      gm?.resetBindings();
+      this.options();
+    });
+    this.el.querySelector("[data-back]").addEventListener("click", () => this.title());
   }
 
   tankSelect(playerIdx) {
@@ -80,10 +209,11 @@ export class Menu {
       <div class="menu-section">
         <div class="choices">
           ${CHASSIS.map((c) => `
-            <div class="choice" data-v="${c.id}" style="min-width:180px;">
+            <div class="choice" data-v="${c.id}" style="min-width:220px; max-width:240px;">
+              <img class="thumb" src="${tankThumb(c.id)}" alt="${c.name}"/>
               <div class="big">${c.name}</div>
               <div class="sub">${c.role}</div>
-              <div class="sub" style="margin-top:8px;">${c.blurb}</div>
+              <div class="sub" style="margin-top:6px;">${c.blurb}</div>
               <div class="sub" style="margin-top:8px; color:#aebdca;">
                 SPD ${bars(c.stats.speed, 34)} · ARM ${bars(c.stats.hp, 175)}<br/>
                 DMG ${bars(c.stats.shellDamage, 60)} · RLD ${bars(5 - c.stats.reload, 2.4)}
@@ -156,10 +286,11 @@ export class Menu {
       <div class="menu-section">
         <div class="choices">
           ${MAPS.map((m) => `
-            <div class="choice" data-v="${m.id}" style="min-width:200px;">
+            <div class="choice" data-v="${m.id}" style="min-width:230px; max-width:250px;">
+              <img class="thumb" src="${mapThumb(m.id)}" alt="${m.name}"/>
               <div class="big">${m.name}</div>
               <div class="sub">${m.blurb}</div>
-              <div style="margin-top:10px; height:8px; border-radius:4px; background: linear-gradient(90deg, ${cssColor(m.sky.top)}, ${cssColor(m.sky.horizon)}, ${cssColor(m.palette[2].c)});"></div>
+              <div style="margin-top:10px; height:6px; border-radius:3px; background: linear-gradient(90deg, ${cssColor(m.sky.top)}, ${cssColor(m.sky.horizon)}, ${cssColor(m.palette[2].c)});"></div>
             </div>
           `).join("")}
         </div>
