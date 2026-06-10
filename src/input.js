@@ -25,7 +25,7 @@ export class Input {
   constructor() {
     this.down = new Set();
     this.pressed = new Set(); // cleared each frame — edge triggers
-    window.addEventListener("keydown", (e) => {
+    this._onKeyDown = (e) => {
       if (e.repeat) return;
       this.down.add(e.code);
       this.pressed.add(e.code);
@@ -33,9 +33,20 @@ export class Input {
       if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Slash", "Quote"].includes(e.code)) {
         e.preventDefault();
       }
-    });
-    window.addEventListener("keyup", (e) => this.down.delete(e.code));
-    window.addEventListener("blur", () => this.down.clear());
+    };
+    this._onKeyUp = (e) => this.down.delete(e.code);
+    this._onBlur = () => this.down.clear();
+    window.addEventListener("keydown", this._onKeyDown);
+    window.addEventListener("keyup", this._onKeyUp);
+    window.addEventListener("blur", this._onBlur);
+  }
+
+  dispose() {
+    window.removeEventListener("keydown", this._onKeyDown);
+    window.removeEventListener("keyup", this._onKeyUp);
+    window.removeEventListener("blur", this._onBlur);
+    this.down.clear();
+    this.pressed.clear();
   }
 
   /** Read one player's controls. keys = P1_KEYS | P2_KEYS. */
@@ -46,6 +57,8 @@ export class Input {
       steer: (d.has(keys.right) ? 1 : 0) - (d.has(keys.left) ? 1 : 0),
       turretTurn: (d.has(keys.turretLeft) ? 1 : 0) - (d.has(keys.turretRight) ? 1 : 0),
       pitch: (d.has(keys.pitchUp) ? 1 : 0) - (d.has(keys.pitchDown) ? 1 : 0),
+      // deliberate: holding fire re-fires the instant reload completes
+      // (artillery cadence) — reload time is the real rate limiter
       fire: p.has(keys.fire) || d.has(keys.fire),
       mg: d.has(keys.mg),
     };

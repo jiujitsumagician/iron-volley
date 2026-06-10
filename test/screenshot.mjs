@@ -34,6 +34,10 @@ const targets = [
   { name: "cinder", url: `${BASE}/?test&map=cinder&bots=4`, wait: 4500 },
   { name: "neon", url: `${BASE}/?test&map=neon&bots=4`, wait: 4500 },
   { name: "splitscreen", url: `${BASE}/?test&map=verdant&players=2&bots=2`, wait: 4500 },
+  // action frames: bots at war for a while, then capture
+  { name: "action-dunes", url: `${BASE}/?test&auto&map=dunes&bots=5&diff=1.35`, wait: 16000 },
+  { name: "action-cinder", url: `${BASE}/?test&auto&map=cinder&bots=5&diff=1.35`, wait: 18000 },
+  { name: "action-neon", url: `${BASE}/?test&auto&map=neon&bots=5&diff=1.35`, wait: 20000 },
 ];
 
 for (const t of targets) {

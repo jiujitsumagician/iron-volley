@@ -9,7 +9,7 @@
 import * as THREE from "three";
 
 const PARTICLES = 900;
-const SPRITES = 140;
+const SPRITES = 300; // a single nuke uses ~170 - budget for chained big effects
 const SEGMENTS = 160;
 const RINGS = 32;
 const LIGHTS = 8;

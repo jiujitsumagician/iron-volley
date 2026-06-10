@@ -8,6 +8,9 @@
  */
 
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { buildWorld } from "./terrain.js";
 import { mapById, WORLD_SIZE } from "./maps.js";
 import { Tank } from "./tank.js";
@@ -138,6 +141,23 @@ export class Game {
       this.bots.push({ tank, brain: new BotBrain(tank, config.difficulty ?? 1) });
     }
 
+    // per-map cinematic exposure + bloom (solo only — split-screen
+    // keeps the raw scissor path for honest 60fps on one GPU)
+    renderer.toneMappingExposure = this.map.exposure ?? 1.05;
+    this.composer = null;
+    if (this.players.length === 1) {
+      const composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(this.scene, this.players[0].cam));
+      const bloom = new UnrealBloomPass(
+        new THREE.Vector2(renderer.domElement.width, renderer.domElement.height),
+        0.55, 0.4, 0.82
+      );
+      composer.addPass(bloom);
+      this.composer = composer;
+      this._onResize = () => composer.setSize(window.innerWidth, window.innerHeight);
+      window.addEventListener("resize", this._onResize);
+    }
+
     this.sharedHud = new SharedHud();
     this.sharedHud.show();
     this.updateScorePill();
@@ -178,17 +198,24 @@ export class Game {
   }
 
   handleKill(victim, attacker, weapon) {
-    this.sharedHud.addKill(attacker?.name ?? "THE WORLD", weapon ?? "?", victim.name);
+    this.sharedHud.addKill(attacker?.name ?? "OWN GOAL", weapon ?? "?", victim.name);
     this.hudFor(victim)?.toast("DESTROYED — RESPAWNING");
-    if (attacker && this.hudFor(attacker)) this.hudFor(attacker).toast("TARGET DESTROYED", 1200);
+    if (attacker && attacker !== victim && this.hudFor(attacker)) {
+      this.hudFor(attacker).toast("TARGET DESTROYED", 1200);
+    }
     this.addTrauma(0.45);
     this.updateScorePill();
 
+    this.checkWin();
+  }
+
+  checkWin() {
+    if (this.over) return;
     const winner = this.world.tanks.find((t) => t.kills >= this.killTarget);
-    if (winner && !this.over) {
+    if (winner) {
       this.over = true;
       audio.victory?.({});
-      setTimeout(() => this.finish(winner), 1700);
+      this._finishTimer = setTimeout(() => this.finish(winner), 1700);
     }
   }
 
@@ -201,6 +228,7 @@ export class Game {
   }
 
   finish(winner) {
+    if (this.disposed) return; // stale timer from an abandoned match
     const standings = [...this.world.tanks]
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
       .map((t) => ({ name: t.name, chassis: t.chassis.name, kills: t.kills, deaths: t.deaths, isPlayer: !t.isBot }));
@@ -274,13 +302,31 @@ export class Game {
 
     // ── HUD ──────────────────────────────────────────────────
     for (const p of this.players) p.hud.update(p.tank, dt);
+
+    // win condition is re-checked continuously, not only on kill
+    // events, so a mid-match killTarget change can't strand a match
+    this._winCheckAcc = (this._winCheckAcc ?? 0) + dt;
+    if (this._winCheckAcc > 1) {
+      this._winCheckAcc = 0;
+      this.checkWin();
+    }
   }
 
   findRespawn(tank) {
     let best = null, bestScore = -1;
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 24; i++) {
       const x = rand(-1, 1) * WORLD_SIZE * 0.36;
       const z = rand(-1, 1) * WORLD_SIZE * 0.36;
+
+      // never respawn on cliffs, in water/lava, inside a prop, or
+      // standing in someone's fire pool
+      const n = this.world.normalAt(x, z);
+      if (n.y < 0.8) continue;
+      const y = this.world.heightAt(x, z);
+      if (this.map.water && y < this.map.water.level + 2) continue;
+      if (this.world.obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + 7)) continue;
+      if (this.weapons.firePools.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + 10)) continue;
+
       let nearest = Infinity;
       for (const t of this.world.tanks) {
         if (t === tank || !t.alive) continue;
@@ -295,8 +341,15 @@ export class Game {
     const r = this.renderer;
     const w = r.domElement.clientWidth, h = r.domElement.clientHeight;
     const n = this.players.length;
-    r.setScissorTest(n > 1);
 
+    if (this.composer && n === 1) {
+      const p = this.players[0];
+      this.updateCamera(p, dt, w / h);
+      this.composer.render();
+      return;
+    }
+
+    r.setScissorTest(n > 1);
     this.players.forEach((p, i) => {
       const vx = n === 2 ? (i === 0 ? 0 : Math.floor(w / 2)) : 0;
       const vw = n === 2 ? Math.floor(w / 2) : w;
@@ -349,18 +402,33 @@ export class Game {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    clearTimeout(this._finishTimer);
+    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.setScissorTest(false);
+    if (this._onResize) window.removeEventListener("resize", this._onResize);
+    this.composer?.dispose?.();
     audio.musicStop?.();
     for (const p of this.players) { p.engine?.stop?.(); p.hud.hide(); }
     this.sharedHud.hide();
     document.getElementById("divider").style.display = "none";
-    this.effects.clear();
-    this.weapons.clear();
-    this.pickups.clear();
+    // Dispose GPU resources while everything is still attached to the
+    // scene, THEN let the systems detach their objects — the other
+    // order leaks every shell/crate geometry each match.
     this.scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose?.();
       if (o.material) {
-        (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose?.());
+        (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+          m.map?.dispose?.();
+          m.dispose?.();
+        });
       }
     });
+    this.effects.clear();
+    this.weapons.dispose();
+    this.pickups.clear();
+    this.input.dispose();
+    if (window.__IV?.game === this) delete window.__IV;
   }
 }

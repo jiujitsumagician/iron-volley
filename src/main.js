@@ -77,14 +77,45 @@ function fadeIn() {
   setTimeout(() => (fade.style.opacity = 0), 60);
 }
 
+// ── pause ────────────────────────────────────────────────────
+let paused = false;
+const pauseEl = document.createElement("div");
+pauseEl.className = "layer interactive";
+pauseEl.style.cssText = "display:none; z-index:25; align-items:center; justify-content:center; background:rgba(4,6,9,.7); backdrop-filter:blur(3px);";
+pauseEl.innerHTML = `
+  <div class="panel" style="width:auto; padding:34px 60px;">
+    <div class="logo" style="font-size:40px;">Paused</div>
+    <div class="row-actions">
+      <button class="btn" data-resume>RESUME</button>
+      <button class="btn ghost" data-quit>ABANDON MATCH</button>
+    </div>
+  </div>`;
+document.body.appendChild(pauseEl);
+pauseEl.querySelector("[data-resume]").onclick = () => setPaused(false);
+pauseEl.querySelector("[data-quit]").onclick = () => {
+  setPaused(false);
+  game?.dispose();
+  game = null;
+  menu.show();
+};
+function setPaused(v) {
+  paused = v && !!game;
+  pauseEl.style.display = paused ? "flex" : "none";
+}
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Escape" && game) setPaused(!paused);
+});
+
 // ── loop ─────────────────────────────────────────────────────
 let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (game) {
-    game.update(dt);
+  if (game && !paused) {
+    // __TEST_MANUAL lets the headless playtest step the simulation
+    // deterministically (decoupled from SwiftShader frame rate)
+    if (!window.__TEST_MANUAL) game.update(dt);
     game.render(dt);
   }
 }

@@ -44,9 +44,10 @@ export class BotBrain {
     this.retargetIn -= dt;
     if (!this.target || !this.target.alive || this.retargetIn <= 0) {
       this.retargetIn = rand(2.5, 4.5);
+      // free-for-all: team colors are cosmetic, everyone is a target
       let best = null, bestD = Infinity;
       for (const other of world.tanks) {
-        if (other === t || !other.alive || other.team.id === t.team.id) continue;
+        if (other === t || !other.alive) continue;
         const d = t.pos.distanceTo(other.pos);
         const bias = other.hp / other.maxHp; // prefer wounded
         const score = d * (0.6 + bias * 0.6);

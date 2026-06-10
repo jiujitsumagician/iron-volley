@@ -1,36 +1,30 @@
-IRON VOLLEY: playable build — 5 maps, 4 tanks, AI war, specials, split-screen
+polish + hardening: bloom, per-map exposure, pause, Codex review fixes
 
-3D tank artillery combat (Three.js, zero build step). Working game loop
-verified headless on every map.
+Visual: UnrealBloom (solo), per-map tone exposure (golden dunes, lava
+glow, neon grid pop), richer palettes, stronger wireframe, lava raised
+into its channels, sprite pool 140->300 (nuke headroom). All five maps
++ action frames screenshot-verified.
 
-- Terrain: analytic heightfield (mesh + physics share one function),
-  vertex-color painting, slope rock blending, water/lava/energy planes,
-  gradient sky dome shader w/ sun + stars, per-map prop kits.
-- Maps: Dune Sea, Frostline (frozen lake + snowfall), Verdant Vale
-  (river valley), Cinder Peak (volcano + lava channels + embers),
-  Neon Rift (terraced synthwave canyon, wireframe glow, monoliths).
-- Tanks: JACKAL/VIPER/BASTION/LONGBOW — procedural chassis (hull,
-  turret, barrel, mounted MG, tracks, headlights), arcade physics over
-  the heightfield w/ slope resistance + collisions.
-- Weapons: ballistic shells (shared launch-angle solver), hold-to-fire
-  MG w/ heat, special rounds — SCATTER (9 bomblets), LANCE laser,
-  NUKE, INFERNO fire pools (DoT), SINGULARITY gravity well (pulls
-  tanks AND bends shells).
-- Pickups: beacon crates, 5 live at once, respawning.
-- AI: target selection, charge/standoff/orbit movement, terrain +
-  obstacle feelers, stop-to-fire artillery doctrine with high-arc
-  lobbing over hills, MG at knife range, crate seeking, 3 difficulties.
-- Shell: menu flow (mode/tank/bots/difficulty/map), split-screen
-  scissor rendering + dual keyboard maps, per-player chase cam w/
-  trauma shake + death orbit cam, HUD (hp/reload/heat/special/toasts),
-  kill feed, score pill, end screen standings, re-deploy.
-- Audio (Codex CLI): full procedural WebAudio kit — cannon/MG/laser/
-  nuke/fires/UI/engine loops + menu & battle music schedulers.
-- Effects (Codex CLI): pooled particles — muzzle/tracers/explosions/
-  shock rings/nuke mushroom/fire pools/wreck smoke/dust + snow & ember
-  ambience.
-- Tests: Playwright screenshot harness (7 shots, zero console errors)
-  + headless all-bot playtest (21 checks: combat on all maps, kills,
-  respawns, pickups, specials, match end) — ALL PASSING.
+Game shell: Esc pause overlay (resume / abandon), continuous win-
+condition checking, README with controls/tanks/maps/rounds + hero
+shots in docs/.
+
+Codex CLI adversarial review — all 9 findings fixed:
+- CRITICAL stale finish timer could dispose a NEWER match after
+  re-deploy (timer cleared + disposed guard)
+- GPU disposal ordering leaked shell/crate geometry every match;
+  weapons.dispose() added, textures disposed
+- Input listeners leaked per match (Input.dispose())
+- AI targeting now honest free-for-all (team colors cosmetic)
+- self-nuke deals damage but credits no kill; killfeed shows OWN GOAL
+- respawns reject cliffs, water/lava, props, burning ground
+- hold-to-fire documented as intentional artillery cadence
+- effects sprite budget covers chained nukes
+
+Testing: playtest now steps the simulation deterministically
+(window.__TEST_MANUAL decouples game.update from SwiftShader frame
+rate) — 26 checks across 5 maps + a 4-minute simulated 8-tank war
+through to the victory screen. Full double verification (screenshots
++ playtest, twice): ALL GREEN both passes, zero console errors.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>

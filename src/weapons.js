@@ -359,13 +359,16 @@ export class Weapons {
 
   applyDamage(tank, amount, attacker, weapon) {
     if (!tank.alive) return;
-    const died = tank.takeDamage(amount, attacker);
+    // self-damage is allowed (don't nuke your own feet) but never
+    // earns kill credit or victory toasts
+    const credited = attacker === tank ? null : attacker;
+    const died = tank.takeDamage(amount, credited);
     this.ctx.events.onDamage?.(tank, amount, attacker);
     if (died) {
       this.ctx.effects.wreck(tank.pos.clone());
       this.ctx.audio.death({});
       tank.root.visible = false;
-      this.ctx.events.onKill?.(tank, attacker, weapon);
+      this.ctx.events.onKill?.(tank, credited, weapon);
     } else if (amount > 1) {
       this.ctx.audio.hit({ gain: 0.35 });
     }
@@ -375,6 +378,13 @@ export class Weapons {
     for (let i = this.shells.length - 1; i >= 0; i--) this.removeShell(i);
     this.firePools.length = 0;
     this.gravityWells.length = 0;
+  }
+
+  dispose() {
+    this.clear();
+    this.shellGeo.dispose();
+    for (const m of this.shellMats.values()) m.dispose();
+    this.shellMats.clear();
   }
 }
 

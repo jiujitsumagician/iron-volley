@@ -85,7 +85,7 @@ export function buildWorld(map) {
         color: map.wireframeGlow,
         wireframe: true,
         transparent: true,
-        opacity: 0.10,
+        opacity: 0.17,
       })
     );
     wire.position.y += 0.25;

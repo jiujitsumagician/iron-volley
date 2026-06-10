@@ -36,15 +36,16 @@ export const MAPS = [
     blurb: "Sun-bleached ridgelines and deep sand bowls.",
     seed: 101,
     sky: { top: 0x3a73b8, horizon: 0xf2c98c, sun: 0xffe7b0, sunPos: [0.55, 0.32, 0.4] },
-    fog: { color: 0xe8c79a, near: 380, far: 1500 },
-    hemi: { sky: 0xbfd9ff, ground: 0x8a6a40, intensity: 0.85 },
-    sunlight: { color: 0xffe3b3, intensity: 2.1 },
+    fog: { color: 0xe0b780, near: 380, far: 1500 },
+    hemi: { sky: 0xbfd9ff, ground: 0x8a6a40, intensity: 0.55 },
+    sunlight: { color: 0xffdf9e, intensity: 2.3 },
+    exposure: 1.12,
     palette: [
-      { h: -10, c: [0.66, 0.48, 0.26] },
-      { h: 14, c: [0.78, 0.58, 0.32] },
-      { h: 34, c: [0.86, 0.66, 0.38] },
-      { h: 60, c: [0.6, 0.4, 0.24] },
-      { h: 100, c: [0.42, 0.28, 0.18] },
+      { h: -10, c: [0.58, 0.4, 0.18] },
+      { h: 14, c: [0.74, 0.52, 0.22] },
+      { h: 34, c: [0.85, 0.62, 0.28] },
+      { h: 60, c: [0.52, 0.33, 0.15] },
+      { h: 100, c: [0.38, 0.24, 0.12] },
     ],
     slopeColor: [0.6, 0.42, 0.3],
     height(x, z, fbm) {
@@ -131,8 +132,9 @@ export const MAPS = [
     seed: 404,
     sky: { top: 0x1a0d12, horizon: 0x7a2a16, sun: 0xff7a3c, sunPos: [-0.2, 0.18, -0.55] },
     fog: { color: 0x4a1d12, near: 240, far: 1150 },
-    hemi: { sky: 0x8a4a4a, ground: 0x2a1612, intensity: 1.05 },
-    sunlight: { color: 0xff9b66, intensity: 1.7 },
+    hemi: { sky: 0x8a4a4a, ground: 0x2a1612, intensity: 1.3 },
+    sunlight: { color: 0xff9b66, intensity: 2.0 },
+    exposure: 1.5,
     palette: [
       { h: -10, c: [0.16, 0.13, 0.13] },
       { h: 10, c: [0.26, 0.21, 0.2] },
@@ -153,7 +155,7 @@ export const MAPS = [
       const channel = Math.max(0, 18 - flows * 0.55); // lava channels
       return cone - crater + rough - channel + 8 + rimWall(x, z);
     },
-    water: { level: -2, color: 0xff5a18, opacity: 0.95, lava: true, emissive: 2.2 },
+    water: { level: 1, color: 0xff5a18, opacity: 0.95, lava: true, emissive: 2.2 },
     propsSpec: { kind: "spires", count: 80 },
   }),
 
@@ -165,8 +167,9 @@ export const MAPS = [
     seed: 505,
     sky: { top: 0x070114, horizon: 0xff2e88, sun: 0x66e0ff, sunPos: [0, 0.26, -0.8] },
     fog: { color: 0x1a0533, near: 300, far: 1300 },
-    hemi: { sky: 0x4422aa, ground: 0x140a26, intensity: 0.8 },
-    sunlight: { color: 0x9fd0ff, intensity: 1.1 },
+    hemi: { sky: 0x4422aa, ground: 0x140a26, intensity: 0.85 },
+    sunlight: { color: 0x9fd0ff, intensity: 1.2 },
+    exposure: 1.2,
     palette: [
       { h: -12, c: [0.05, 0.02, 0.12] },
       { h: 6, c: [0.1, 0.05, 0.22] },

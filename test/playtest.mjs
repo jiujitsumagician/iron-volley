@@ -1,5 +1,6 @@
-// Headless functional playtest: an all-bot match runs at speed while
-// we assert the core loop actually happens — shells fly, tanks die,
+// Headless functional playtest: all-bot matches stepped DETERMINISTICALLY
+// (window.__TEST_MANUAL decouples simulation from SwiftShader's frame
+// rate). Asserts the core loop end-to-end: shells fly, tanks die,
 // crates get taken, specials fire, the match ends — with zero errors.
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
@@ -16,6 +17,7 @@ const browser = await chromium.launch({
   args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+page.setDefaultTimeout(240_000);
 
 const errors = [];
 page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
@@ -27,67 +29,74 @@ const check = (name, cond, extra = "") => {
   if (!cond) failures++;
 };
 
-// ── soak: every map briefly boots + simulates ─────────────────
+/** Step `seconds` of game time at 30Hz, yielding to the event loop. */
+const stepSim = (seconds) => page.evaluate(async (secs) => {
+  window.__TEST_MANUAL = true;
+  const g = window.__IV;
+  const steps = Math.round(secs * 30);
+  for (let i = 0; i < steps; i++) {
+    g.game.update(1 / 30);
+    if (i % 240 === 239) await new Promise((r) => setTimeout(r, 0));
+  }
+}, seconds);
+
+// ── every map: 25 simulated seconds of war ────────────────────
 for (const map of ["dunes", "frost", "verdant", "cinder", "neon"]) {
   await page.goto(`${BASE}/?test&auto&map=${map}&bots=5&kills=50`, { waitUntil: "load" });
   await page.waitForFunction(() => !!window.__IV, null, { timeout: 15000 });
-  await page.waitForTimeout(12000);
+  await stepSim(25);
   const stats = await page.evaluate(() => {
     const g = window.__IV;
-    return g ? {
+    return {
       tanks: g.tanks.length,
       shotsFired: g.weapons.shotsFired,
       anyDamage: g.tanks.some((t) => t.hp < t.maxHp || t.deaths > 0),
       crates: g.pickups.crates.length,
-    } : null;
+    };
   });
-  check(`[${map}] boots with 6 tanks`, stats?.tanks === 6, JSON.stringify(stats));
-  check(`[${map}] shells are flying`, (stats?.shotsFired ?? 0) > 0, JSON.stringify(stats));
-  check(`[${map}] crates exist`, (stats?.crates ?? 0) > 0);
+  check(`[${map}] boots with 6 tanks`, stats.tanks === 6, JSON.stringify(stats));
+  check(`[${map}] shells are flying`, stats.shotsFired > 0, JSON.stringify(stats));
+  check(`[${map}] combat connects`, stats.anyDamage, JSON.stringify(stats));
+  check(`[${map}] crates exist`, stats.crates > 0);
 }
 
-// ── long soak on one map: kills + pickups + specials + match end ──
+// ── long soak: 4 minutes of simulated war on one map ──────────
 await page.goto(`${BASE}/?test&auto&map=verdant&bots=7&kills=3&diff=1.35`, { waitUntil: "load" });
 await page.waitForFunction(() => !!window.__IV, null, { timeout: 15000 });
-page.setDefaultTimeout(200_000);
+
 const soak = await page.evaluate(async () => {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  window.__TEST_MANUAL = true;
   const g = window.__IV;
-  let pickupsTaken = 0, specialsFired = 0, sawSpecialShell = false;
-  const start = performance.now();
   let ended = false;
   const origEnd = g.game.onMatchEnd;
   g.game.onMatchEnd = (res) => { ended = true; origEnd(res); };
 
-  while (performance.now() - start < 150_000 && !ended) {
-    await sleep(500);
-    for (const t of g.tanks) if (t.special) pickupsTaken++;
+  let pickupsSeen = false, sawSpecialShell = false, specialsFired = false;
+  let simSeconds = 0;
+  while (simSeconds < 240 && !ended) {
+    for (let i = 0; i < 30 && !ended; i++) g.game.update(1 / 30);
+    simSeconds += 1;
+    for (const t of g.tanks) if (t.special) pickupsSeen = true;
     for (const s of g.weapons.shells) if (s.type !== "standard") sawSpecialShell = true;
-    if (g.weapons.firePools.length || g.weapons.gravityWells.length) specialsFired++;
-    // after 45s of organic war, collapse the finish line so the
-    // end-of-match flow itself is what we verify (not bot lethality)
-    if (performance.now() - start > 45_000 && g.game.killTarget !== 1) {
-      g.game.killTarget = 1;
-      g.game.updateScorePill();
-    }
+    if (g.weapons.firePools.length || g.weapons.gravityWells.length) specialsFired = true;
+    if (simSeconds % 8 === 0) await new Promise((r) => setTimeout(r, 0));
   }
+  // the victory → end-screen handoff runs on a 1.7s wall-clock timer
+  await new Promise((r) => setTimeout(r, 2600));
   return {
     ended,
-    elapsed: ((performance.now() - start) / 1000) | 0,
+    simSeconds,
     totalKills: g.tanks.reduce((a, t) => a + t.kills, 0),
     totalDeaths: g.tanks.reduce((a, t) => a + t.deaths, 0),
-    pickupsSeen: pickupsTaken > 0,
-    sawSpecialShell,
-    specialsFired: specialsFired > 0,
+    pickupsSeen, sawSpecialShell, specialsFired,
   };
 });
-check("long soak: kills happened", soak.totalKills >= 1, JSON.stringify(soak));
-check("long soak: respawns happened (deaths tracked)", soak.totalDeaths >= 1, JSON.stringify(soak));
+check("long soak: kills happened", soak.totalKills >= 3, JSON.stringify(soak));
+check("long soak: respawns happened (deaths tracked)", soak.totalDeaths >= 3, JSON.stringify(soak));
 check("long soak: bots collected special rounds", soak.pickupsSeen, JSON.stringify(soak));
 check("long soak: special shells were fired", soak.sawSpecialShell || soak.specialsFired, JSON.stringify(soak));
-check("long soak: match reached its end screen", soak.ended, JSON.stringify(soak));
+check("long soak: a tank won (first to 3)", soak.ended, JSON.stringify(soak));
 
-// end screen visible?
 const endVisible = await page.evaluate(
   () => document.getElementById("endscreen").style.display === "flex"
 );
