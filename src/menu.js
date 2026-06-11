@@ -69,15 +69,27 @@ export class Menu {
   /** Called by the main loop with edge-triggered pad input. */
   handlePad(nav) {
     if (this.el.style.display === "none" || !this.focusables.length) return;
-    if (nav.down || nav.right) {
-      this.focusIdx = (this.focusIdx + 1) % this.focusables.length;
+    // First directional press just reveals the cursor (e.g. a pad connected
+    // after this screen was built, so nothing is highlighted yet).
+    if ((nav.up || nav.down || nav.left || nav.right) && this.focusIdx < 0) {
+      this.focusIdx = 0;
       audio.uiMove?.({ gain: 0.3 });
       this.applyFocus();
-    } else if (nav.up || nav.left) {
-      this.focusIdx = (this.focusIdx - 1 + this.focusables.length) % this.focusables.length;
-      audio.uiMove?.({ gain: 0.3 });
-      this.applyFocus();
-    } else if (nav.confirm) {
+      return;
+    }
+    const cur = this.focusables[this.focusIdx];
+    // Left/right on a focused slider nudges its value instead of moving away.
+    if (cur?.type === "range" && (nav.left || nav.right)) {
+      cur.value = Math.max(0, Math.min(100, Number(cur.value) + (nav.right ? 5 : -5)));
+      cur.dispatchEvent(new Event("input"));
+      audio.uiMove?.({ gain: 0.2 });
+      return;
+    }
+    if (nav.up) this.moveFocus("up");
+    else if (nav.down) this.moveFocus("down");
+    else if (nav.left) this.moveFocus("left");
+    else if (nav.right) this.moveFocus("right");
+    else if (nav.confirm) {
       const f = this.focusables[Math.max(0, this.focusIdx)];
       if (f?.type === "range") {
         f.value = Number(f.value) + 10 > 100 ? 0 : Number(f.value) + 10;
@@ -86,6 +98,38 @@ export class Menu {
     } else if (nav.back) {
       this.el.querySelector("[data-back]")?.click();
     }
+  }
+
+  /**
+   * Spatial focus move: pick the focusable whose centre lies furthest in the
+   * requested direction with the least cross-axis drift — so Up/Down walk rows
+   * and Left/Right walk columns like a real game menu, instead of stepping
+   * through DOM reading order (which made Up/Down feel like Left/Right).
+   */
+  moveFocus(dir) {
+    const cur = this.focusables[this.focusIdx] || this.focusables[0];
+    if (!cur) return;
+    const cr = cur.getBoundingClientRect();
+    const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+    let best = -1, bestScore = Infinity;
+    this.focusables.forEach((f, i) => {
+      if (i === this.focusIdx) return;
+      const r = f.getBoundingClientRect();
+      const dx = (r.left + r.width / 2) - cx;
+      const dy = (r.top + r.height / 2) - cy;
+      let primary, cross;
+      if (dir === "left") { if (dx > -2) return; primary = -dx; cross = Math.abs(dy); }
+      else if (dir === "right") { if (dx < 2) return; primary = dx; cross = Math.abs(dy); }
+      else if (dir === "up") { if (dy > -2) return; primary = -dy; cross = Math.abs(dx); }
+      else { if (dy < 2) return; primary = dy; cross = Math.abs(dx); }
+      // Weight cross-axis drift heavily so the cursor stays in the same row/column.
+      const score = primary + cross * 3;
+      if (score < bestScore) { bestScore = score; best = i; }
+    });
+    if (best === -1) return; // edge of the menu in that direction — stay put
+    this.focusIdx = best;
+    audio.uiMove?.({ gain: 0.3 });
+    this.applyFocus();
   }
 
   // ── screens ─────────────────────────────────────────────────

@@ -56,6 +56,9 @@ const endEl = document.getElementById("endscreen");
 const fade = document.getElementById("fade");
 
 const menu = new Menu(menuEl, launchMatch, gamepads);
+// Test hook (mirrors window.__IV for the game) so the menu harness can drive
+// focus navigation deterministically without faking frame-timed pad edges.
+if (typeof window !== "undefined") window.__MENU = menu;
 
 function launchMatch(config) {
   fadeOut(() => {

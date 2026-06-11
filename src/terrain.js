@@ -100,6 +100,10 @@ export function buildWorld(map) {
   const scorch = map.slopeColor.map((v) => v * 0.32);
   function deform(cx, cz, radius, depth, opts = {}) {
     if (radius <= 0 || depth <= 0) return;
+    // Terrain damage from shots dialed up +300% — craters bite 4× deeper.
+    // The per-vertex offset is still clamped (see below), so this deepens the
+    // bowls without letting anything punch through to a bottomless pit.
+    depth *= 4;
     const sc = opts.scorch ?? scorch;
     const spanC = Math.ceil(radius / Math.abs(XStep)) + 1;
     const spanR = Math.ceil(radius / Math.abs(ZStep)) + 1;

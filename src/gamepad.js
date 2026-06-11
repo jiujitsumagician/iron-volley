@@ -86,7 +86,7 @@ function axis(pad, index) {
 // Y on axis 5 (or 4); only adopt those when the standard pair is idle and the
 // alternate is a real stick deflection — not a trigger resting at ±1.
 function readRightStick(pad) {
-  const x = axis(pad, 2);
+  let x = axis(pad, 2);
   let y = axis(pad, 3);
   if (pad && pad.axes && pad.axes.length > 4) {
     // generic/DInput pads commonly carry right-stick Y on axis 5 (or 4) while
@@ -95,6 +95,14 @@ function readRightStick(pad) {
     for (const yi of [5, 4]) {
       const ay = axis(pad, yi);
       if (Math.abs(ay) > Math.abs(y) && Math.abs(ay) < 0.985) y = ay;
+    }
+    // Some of those same pads also park right-stick X on axis 4 while axis 2
+    // is a trigger or stays flat — so turret aim never moved. Only adopt the
+    // alternate when the standard axis is idle and the alternate is a clear,
+    // non-trigger deflection, so a correctly-mapped pad is never hijacked.
+    if (Math.abs(x) < 0.08) {
+      const ax = axis(pad, 4);
+      if (Math.abs(ax) > 0.2 && Math.abs(ax) < 0.985) x = ax;
     }
   }
   return applyRadialDeadzone(x, y);
