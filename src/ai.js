@@ -172,7 +172,7 @@ export class BotBrain {
 
       // weapon discipline: don't fire area specials inside their own
       // blast radius — fall back to AP until the range opens up
-      const SAFE_RANGE = { nuke: 170, incendiary: 55, scatter: 55, gravity: 60, laser: 0 };
+      const SAFE_RANGE = { nuke: 170, incendiary: 55, scatter: 55, gravity: 60, laser: 0, railgun: 0, barrage: 75, emp: 55, bouncer: 45 };
       this.specialSafe = !t.special || d > (SAFE_RANGE[t.special.type] ?? 0);
     }
 

@@ -208,11 +208,28 @@ export function buildWorld(map) {
   if (map.grass) group.add(buildGrass(map, heightAt));
 
   // ── props ────────────────────────────────────────────────────
-  const obstacles = []; // { x, z, r, h } cylinders for collision
+  const obstacles = []; // { x, z, r, h, hp, kind, mesh, debrisColor }
   const propGroup = buildProps(map, heightAt, obstacles);
   group.add(propGroup);
 
-  return { group, heightAt, normalAt, obstacles, waterMesh, terrainMesh, deform };
+  // Blow a prop off the map: remove from collision + scene, free GPU
+  // resources (every prop owns its own geometry/materials).
+  function destroyObstacle(o) {
+    const i = obstacles.indexOf(o);
+    if (i >= 0) obstacles.splice(i, 1);
+    if (o.mesh) {
+      propGroup.remove(o.mesh);
+      o.mesh.traverse((m) => {
+        m.geometry?.dispose?.();
+        if (m.material) {
+          (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => x.dispose?.());
+        }
+      });
+      o.mesh = null;
+    }
+  }
+
+  return { group, heightAt, normalAt, obstacles, waterMesh, terrainMesh, deform, destroyObstacle };
 }
 
 // Flag a contiguous run of vertices for GPU re-upload (partial range so
@@ -389,26 +406,26 @@ function buildProps(map, heightAt, obstacles) {
   // merged groups of simple meshes — prop counts are modest)
   for (const p of placements) {
     const v = rng();
-    let mesh = null, radius = 0, height = 0;
+    let mesh = null, radius = 0, height = 0, hp = 60, kind = "rock", debrisColor = 0x8a6a40;
     switch (spec.kind) {
       case "rocks+cacti":
-        if (v < 0.62) { mesh = rock(rng, 0x9a7b52); radius = 4.4; height = 6; }
-        else { mesh = cactus(rng); radius = 1.6; height = 9; }
+        if (v < 0.62) { mesh = rock(rng, 0x9a7b52); radius = 4.4; height = 6; hp = 70; kind = "rock"; debrisColor = 0x9a7b52; }
+        else { mesh = cactus(rng); radius = 1.6; height = 9; hp = 14; kind = "cactus"; debrisColor = 0x3f7a3a; }
         break;
       case "pines+boulders":
-        if (v < 0.7) { mesh = pine(rng); radius = 2.2; height = 18; }
-        else { mesh = rock(rng, 0x8d9aa8); radius = 5; height = 7; }
+        if (v < 0.7) { mesh = pine(rng); radius = 2.2; height = 18; hp = 26; kind = "tree"; debrisColor = 0x1e3d2f; }
+        else { mesh = rock(rng, 0x8d9aa8); radius = 5; height = 7; hp = 80; kind = "rock"; debrisColor = 0x8d9aa8; }
         break;
       case "trees+stones":
-        if (v < 0.6) { mesh = broadleaf(rng); radius = 2.6; height = 14; }
-        else if (v < 0.85) { mesh = rock(rng, 0x7d8579); radius = 4; height = 5; }
-        else { mesh = standingStone(rng); radius = 2.4; height = 13; }
+        if (v < 0.6) { mesh = broadleaf(rng); radius = 2.6; height = 14; hp = 30; kind = "tree"; debrisColor = 0x2f6b2a; }
+        else if (v < 0.85) { mesh = rock(rng, 0x7d8579); radius = 4; height = 5; hp = 70; kind = "rock"; debrisColor = 0x7d8579; }
+        else { mesh = standingStone(rng); radius = 2.4; height = 13; hp = 90; kind = "stone"; debrisColor = 0x6e7370; }
         break;
       case "spires":
-        mesh = spire(rng); radius = 3.2; height = 16 + rng() * 14;
+        mesh = spire(rng); radius = 3.2; height = 16 + rng() * 14; hp = 100; kind = "spire"; debrisColor = 0x55302a;
         break;
       case "monoliths":
-        mesh = monolith(rng); radius = 3; height = 18 + rng() * 16;
+        mesh = monolith(rng); radius = 3; height = 18 + rng() * 16; hp = 130; kind = "monolith"; debrisColor = 0x6633aa;
         break;
     }
     if (!mesh) continue;
@@ -418,21 +435,60 @@ function buildProps(map, heightAt, obstacles) {
     mesh.scale.setScalar(s);
     mesh.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     g.add(mesh);
-    obstacles.push({ x: p.x, z: p.z, r: radius * s, h: height * s, y: p.y });
+    obstacles.push({ x: p.x, z: p.z, r: radius * s, h: height * s, y: p.y, hp: hp * s, kind, mesh, debrisColor });
   }
   return g;
 }
 
 const M = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, ...opts });
 
+/**
+ * Boulder cluster. Each rock is an icosahedron displaced by COHERENT
+ * lumpy noise (smooth bumps, not random per-axis shards — the old
+ * version read as crumpled paper), squashed, smooth-shaded, and partly
+ * buried. Big rock + 1–2 satellites sells a natural outcrop.
+ */
 function rock(rng, color) {
-  const geo = new THREE.IcosahedronGeometry(4 + rng() * 3, 1);
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    pos.setXYZ(i, pos.getX(i) * (0.75 + rng() * 0.5), pos.getY(i) * (0.55 + rng() * 0.4), pos.getZ(i) * (0.75 + rng() * 0.5));
+  const grp = new THREE.Group();
+  const baseCol = new THREE.Color(color);
+  const n = rng() < 0.55 ? 1 + ((rng() * 2) | 0) + 1 : 1; // 1..3 rocks
+
+  for (let k = 0; k < n; k++) {
+    const R = k === 0 ? 3.6 + rng() * 2.6 : 1.2 + rng() * 1.6;
+    const geo = new THREE.IcosahedronGeometry(R, 2);
+    const pos = geo.attributes.position;
+    // three random low-frequency lobe directions give organic bulges
+    const l1 = new THREE.Vector3(rng() - 0.5, rng() - 0.5, rng() - 0.5).normalize();
+    const l2 = new THREE.Vector3(rng() - 0.5, rng() - 0.5, rng() - 0.5).normalize();
+    const l3 = new THREE.Vector3(rng() - 0.5, rng() - 0.5, rng() - 0.5).normalize();
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+      const d = v.clone().normalize();
+      const lump =
+        1 +
+        0.22 * Math.sin(d.dot(l1) * 3.1) +
+        0.16 * Math.sin(d.dot(l2) * 5.3 + 1.7) +
+        0.1 * Math.sin(d.dot(l3) * 8.7 + 4.2);
+      v.multiplyScalar(lump);
+      v.y *= 0.72; // sat-flat profile like real field boulders
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    geo.computeVertexNormals();
+    // slight per-rock tint variation so clusters aren't flat-colored
+    const c = baseCol.clone().multiplyScalar(0.85 + rng() * 0.3);
+    const m = new THREE.Mesh(geo, M(c.getHex(), { roughness: 0.98, flatShading: false }));
+    if (k === 0) {
+      m.position.y = R * 0.32; // buried ~1/3
+    } else {
+      const a = rng() * Math.PI * 2;
+      const dist = 3 + rng() * 3.4;
+      m.position.set(Math.cos(a) * dist, R * 0.3, Math.sin(a) * dist);
+    }
+    m.rotation.y = rng() * Math.PI * 2;
+    grp.add(m);
   }
-  geo.computeVertexNormals();
-  return new THREE.Mesh(geo, M(color, { flatShading: true }));
+  return grp;
 }
 
 function cactus(rng) {

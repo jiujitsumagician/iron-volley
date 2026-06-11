@@ -30,12 +30,14 @@ const _quat = new THREE.Quaternion();
 const _dirQuat = new THREE.Quaternion();
 
 export class Tank {
-  constructor({ chassis, team, name, isBot = false, faction = null }) {
+  constructor({ chassis, team, name, isBot = false, faction = null, skin = null }) {
     this.chassis = chassis;
     this.team = team;
     this.name = name;
     this.isBot = isBot;
     this.faction = faction; // damage/minimap allegiance (null = lone)
+    this.skin = skin;
+    this.stunnedUntil = 0; // EMP
 
     const s = chassis.stats;
     this.hp = s.hp;
@@ -66,7 +68,7 @@ export class Tank {
     this.respawnTimer = 0;
     this.smokeAcc = 0;
 
-    this.root = buildTankMesh(chassis.build, team);
+    this.root = buildTankMesh(chassis.build, team, skin);
     this.turret = this.root.getObjectByName("turret");
     this.barrel = this.root.getObjectByName("barrel");
     this.muzzle = this.root.getObjectByName("muzzle");
@@ -97,6 +99,12 @@ export class Tank {
     if (!this.alive) return;
     const s = this.chassis.stats;
     const inp = this.input;
+
+    // EMP: a stunned tank is a paperweight — no drive, no turret, no guns
+    if (performance.now() / 1000 < this.stunnedUntil) {
+      inp.throttle = 0; inp.steer = 0; inp.turretTurn = 0;
+      inp.pitch = 0; inp.fire = false; inp.mg = false;
+    }
 
     // ── drive ────────────────────────────────────────────────
     const target = clamp(inp.throttle, -0.6, 1) * s.speed;
@@ -167,7 +175,15 @@ export class Tank {
     // wheels spin with ground speed
     for (const w of this.wheels) w.rotation.x += (this.speed / 0.95) * dt;
 
-    // ── pose the meshes ──────────────────────────────────────
+    this.poseMesh(world, dt);
+  }
+
+  /**
+   * Pose the meshes from current state (also used by the online guest,
+   * which never runs physics — only this).
+   */
+  poseMesh(world, dt) {
+    const dirX = Math.sin(this.yaw), dirZ = Math.cos(this.yaw);
     const n = world.normalAt(this.pos.x, this.pos.z, _basisN);
     const forward = _fwd.set(dirX, 0, dirZ);
     const right = _right.crossVectors(UP, forward).normalize();
@@ -177,7 +193,15 @@ export class Tank {
     this.root.quaternion.slerp(q, Math.min(1, dt * 10));
     this.root.position.copy(this.pos);
     this.turret.rotation.y = this.turretYaw;
-    this.barrel.rotation.x = -this.barrelPitch;
+
+    // Gun stabilization: barrelPitch is a WORLD angle. The hull tilts
+    // with the terrain, so measure how much the hull pitches along the
+    // turret's aim azimuth and counter it — the gun holds the angle the
+    // gunner set no matter what the tracks are doing.
+    _fwd.set(Math.sin(this.turretYaw), 0, Math.cos(this.turretYaw))
+      .applyQuaternion(this.root.quaternion);
+    const hullPitch = Math.asin(clamp(_fwd.y, -1, 1));
+    this.barrel.rotation.x = -clamp(this.barrelPitch - hullPitch, -0.5, 1.35);
   }
 
   canFire() {
@@ -222,11 +246,61 @@ function approach(v, target, step) {
   return v;
 }
 
+// ── paint shop: generated camo textures, cached per skin ───────
+const _camoCache = new Map();
+function camoTexture(skin) {
+  if (_camoCache.has(skin.id)) return _camoCache.get(skin.id);
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const ctx = c.getContext("2d");
+  const hex = (n) => `#${n.toString(16).padStart(6, "0")}`;
+  ctx.fillStyle = hex(skin.colors[0]);
+  ctx.fillRect(0, 0, 256, 256);
+  if (skin.stripes) {
+    // tiger: wavy diagonal slashes
+    for (let i = 0; i < 26; i++) {
+      ctx.strokeStyle = hex(skin.colors[i % 2 === 0 ? 1 : 2]);
+      ctx.lineWidth = 6 + Math.random() * 12;
+      ctx.beginPath();
+      const y = Math.random() * 256;
+      ctx.moveTo(-20, y);
+      ctx.bezierCurveTo(80, y + (Math.random() - 0.5) * 90, 180, y + (Math.random() - 0.5) * 90, 286, y + (Math.random() - 0.5) * 60);
+      ctx.stroke();
+    }
+  } else {
+    // classic blotch camo
+    for (let i = 0; i < 46; i++) {
+      ctx.fillStyle = hex(skin.colors[1 + (i % (skin.colors.length - 1))]);
+      ctx.beginPath();
+      ctx.ellipse(
+        Math.random() * 256, Math.random() * 256,
+        14 + Math.random() * 30, 9 + Math.random() * 20,
+        Math.random() * Math.PI, 0, Math.PI * 2
+      );
+      ctx.fill();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(0.12, 0.12);
+  _camoCache.set(skin.id, tex);
+  return tex;
+}
+
 // ── mesh construction (exported for menu thumbnails) ───────────
-export function buildTankMesh(b, team) {
+export function buildTankMesh(b, team, skin = null) {
   const root = new THREE.Group();
   root.userData.wheels = [];
-  const body = new THREE.MeshStandardMaterial({ color: team.body, roughness: 0.62, metalness: 0.38 });
+  let body;
+  if (skin && skin.kind === "solid") {
+    body = new THREE.MeshStandardMaterial({ color: skin.color, roughness: 0.62, metalness: 0.38 });
+  } else if (skin && skin.kind === "camo") {
+    body = new THREE.MeshStandardMaterial({
+      color: 0xffffff, map: camoTexture(skin), roughness: 0.7, metalness: 0.28,
+    });
+  } else {
+    body = new THREE.MeshStandardMaterial({ color: team.body, roughness: 0.62, metalness: 0.38 });
+  }
   const dark = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 0.85, metalness: 0.2 });
   const accent = new THREE.MeshStandardMaterial({
     color: team.accent, roughness: 0.4, metalness: 0.3,
@@ -259,30 +333,47 @@ export function buildTankMesh(b, team) {
   stripe.position.y = 1.5 + hullH + 0.07;
   root.add(stripe);
 
-  // tracks
-  for (const side of [-1, 1]) {
-    const track = new THREE.Mesh(
-      new THREE.BoxGeometry(1.7, 2.1, b.hullL * 1.02),
-      dark
-    );
-    track.position.set(side * (hw + 0.55), 1.15, 0);
-    track.castShadow = true;
-    root.add(track);
-    // wheels
-    for (let i = 0; i < b.wheels; i++) {
-      const wheelGeo = new THREE.CylinderGeometry(0.95, 0.95, 0.6, 12);
-      wheelGeo.rotateZ(Math.PI / 2); // axle on X — rotation.x is the spin
-      const wheel = new THREE.Mesh(wheelGeo, dark);
-      const t = b.wheels === 1 ? 0.5 : i / (b.wheels - 1);
-      wheel.position.set(side * (hw + 0.56), 0.95, lerp(-b.hullL * 0.42, b.hullL * 0.42, t));
-      root.add(wheel);
-      root.userData.wheels.push(wheel);
+  if (b.hover) {
+    // hover chassis: no tracks — a dark plenum skirt with a glowing
+    // lift strip floating beneath the hull
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(b.hullW + 1.8, 1.2, b.hullL * 0.96), dark);
+    skirt.position.y = 1.0;
+    skirt.castShadow = true;
+    root.add(skirt);
+    const lift = new THREE.Mesh(new THREE.BoxGeometry(b.hullW + 1.2, 0.25, b.hullL * 0.88), accent);
+    lift.position.y = 0.42;
+    root.add(lift);
+    for (const side of [-1, 1]) {
+      const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 1.4, 8), dark);
+      pod.position.set(side * (hw + 0.7), 1.0, -b.hullL * 0.32);
+      root.add(pod);
     }
-    // fender skirts on plated builds
-    if (b.plated) {
-      const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.4, b.hullL * 0.96), body);
-      skirt.position.set(side * (hw + 1.0), 2.2, 0);
-      root.add(skirt);
+  } else {
+    // tracks
+    for (const side of [-1, 1]) {
+      const track = new THREE.Mesh(
+        new THREE.BoxGeometry(1.7, 2.1, b.hullL * 1.02),
+        dark
+      );
+      track.position.set(side * (hw + 0.55), 1.15, 0);
+      track.castShadow = true;
+      root.add(track);
+      // wheels
+      for (let i = 0; i < b.wheels; i++) {
+        const wheelGeo = new THREE.CylinderGeometry(0.95, 0.95, 0.6, 12);
+        wheelGeo.rotateZ(Math.PI / 2); // axle on X — rotation.x is the spin
+        const wheel = new THREE.Mesh(wheelGeo, dark);
+        const t = b.wheels === 1 ? 0.5 : i / (b.wheels - 1);
+        wheel.position.set(side * (hw + 0.56), 0.95, lerp(-b.hullL * 0.42, b.hullL * 0.42, t));
+        root.add(wheel);
+        root.userData.wheels.push(wheel);
+      }
+      // fender skirts on plated builds
+      if (b.plated) {
+        const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.4, b.hullL * 0.96), body);
+        skirt.position.set(side * (hw + 1.0), 2.2, 0);
+        root.add(skirt);
+      }
     }
   }
 
@@ -292,11 +383,13 @@ export function buildTankMesh(b, team) {
   turret.position.set(0, 1.5 + hullH + 0.2, b.longGun ? -0.8 : 0.2);
   root.add(turret);
 
-  const domeGeo = b.angular
-    ? new THREE.CylinderGeometry(b.turretR * 0.78, b.turretR * 1.18, 1.7, 6)
-    : new THREE.SphereGeometry(b.turretR, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  const domeGeo = b.boxTurret
+    ? new THREE.BoxGeometry(b.turretR * 2.1, 1.9, b.turretR * 2.4)
+    : b.angular
+      ? new THREE.CylinderGeometry(b.turretR * 0.78, b.turretR * 1.18, 1.7, 6)
+      : new THREE.SphereGeometry(b.turretR, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2);
   const dome = new THREE.Mesh(domeGeo, body);
-  if (b.angular) dome.position.y = 0.85;
+  if (b.angular || b.boxTurret) dome.position.y = 0.92;
   dome.castShadow = true;
   turret.add(dome);
 
@@ -312,20 +405,23 @@ export function buildTankMesh(b, team) {
   barrel.position.set(0, b.angular ? 1.1 : b.turretR * 0.5, 0);
   turret.add(barrel);
 
-  const tube = new THREE.Mesh(
-    new THREE.CylinderGeometry(b.barrelR, b.barrelR * 1.25, b.barrelL, 12),
-    dark
-  );
-  tube.rotation.x = Math.PI / 2;
-  tube.position.z = b.barrelL / 2 + b.turretR * 0.4;
-  tube.castShadow = true;
-  barrel.add(tube);
+  const tubeOffsets = b.twin ? [-b.barrelR * 2.4, b.barrelR * 2.4] : [0];
+  for (const ox of tubeOffsets) {
+    const tube = new THREE.Mesh(
+      new THREE.CylinderGeometry(b.barrelR, b.barrelR * 1.25, b.barrelL, 12),
+      dark
+    );
+    tube.rotation.x = Math.PI / 2;
+    tube.position.set(ox, 0, b.barrelL / 2 + b.turretR * 0.4);
+    tube.castShadow = true;
+    barrel.add(tube);
 
-  // muzzle brake
-  const brake = new THREE.Mesh(new THREE.CylinderGeometry(b.barrelR * 1.7, b.barrelR * 1.7, 0.9, 10), dark);
-  brake.rotation.x = Math.PI / 2;
-  brake.position.z = b.barrelL + b.turretR * 0.4 - 0.5;
-  barrel.add(brake);
+    // muzzle brake
+    const brake = new THREE.Mesh(new THREE.CylinderGeometry(b.barrelR * 1.7, b.barrelR * 1.7, 0.9, 10), dark);
+    brake.rotation.x = Math.PI / 2;
+    brake.position.set(ox, 0, b.barrelL + b.turretR * 0.4 - 0.5);
+    barrel.add(brake);
+  }
 
   const muzzle = new THREE.Object3D();
   muzzle.name = "muzzle";

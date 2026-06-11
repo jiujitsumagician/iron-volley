@@ -56,7 +56,9 @@ export class Input {
       throttle: (d.has(keys.forward) ? 1 : 0) - (d.has(keys.back) ? 1 : 0),
       steer: (d.has(keys.right) ? 1 : 0) - (d.has(keys.left) ? 1 : 0),
       turretTurn: (d.has(keys.turretLeft) ? 1 : 0) - (d.has(keys.turretRight) ? 1 : 0),
-      pitch: (d.has(keys.pitchUp) ? 1 : 0) - (d.has(keys.pitchDown) ? 1 : 0),
+      // axis reversed by request: the "up" key lowers the barrel and
+      // the "down" key raises it (artillery-style pull-back-to-raise)
+      pitch: (d.has(keys.pitchDown) ? 1 : 0) - (d.has(keys.pitchUp) ? 1 : 0),
       // deliberate: holding fire re-fires the instant reload completes
       // (artillery cadence) — reload time is the real rate limiter
       fire: p.has(keys.fire) || d.has(keys.fire),

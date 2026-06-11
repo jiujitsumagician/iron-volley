@@ -9,7 +9,7 @@
 
 import * as THREE from "three";
 import { buildTankMesh } from "./tank.js";
-import { chassisById, TEAM_COLORS } from "./tanks.js";
+import { chassisById, TEAM_COLORS, skinById } from "./tanks.js";
 import { mapById, makeHeightFn, WORLD_SIZE } from "./maps.js";
 import { clamp, lerp } from "./util.js";
 
@@ -41,12 +41,13 @@ function snap(scene, cam) {
   return url;
 }
 
-/** Hero shot of a chassis on a display plinth. */
-export function tankThumb(chassisId) {
-  const key = `tank:${chassisId}`;
+/** Hero shot of a chassis on a display plinth (optionally in a skin). */
+export function tankThumb(chassisId, skinId = null) {
+  const key = `tank:${chassisId}:${skinId ?? "factory"}`;
   if (cache.has(key)) return cache.get(key);
 
   const chassis = chassisById(chassisId);
+  const skin = skinId ? skinById(skinId) : null;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x10151d);
   scene.fog = new THREE.Fog(0x10151d, 40, 90);
@@ -67,7 +68,7 @@ export function tankThumb(chassisId) {
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
 
-  const tank = buildTankMesh(chassis.build, TEAM_COLORS[0]);
+  const tank = buildTankMesh(chassis.build, TEAM_COLORS[0], skin);
   tank.rotation.y = 2.45; // 3/4 hero angle, barrel sweeping toward camera-left
   const barrel = tank.getObjectByName("barrel");
   if (barrel) barrel.rotation.x = -0.2;

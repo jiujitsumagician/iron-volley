@@ -20,6 +20,10 @@ export const ROUND_TYPES = {
   nuke: { name: "NUKE", color: 0x9dff47, ammo: 1, desc: "City-block eraser" },
   incendiary: { name: "INFERNO", color: 0xff6a2a, ammo: 3, desc: "Burning ground" },
   gravity: { name: "SINGULARITY", color: 0xc47aff, ammo: 2, desc: "Pulls tanks in, then pops" },
+  railgun: { name: "RAILGUN", color: 0xe8f4ff, ammo: 2, desc: "Pierces every tank on the line" },
+  barrage: { name: "BARRAGE", color: 0xff9c2e, ammo: 2, desc: "Marks the spot — six shells answer" },
+  emp: { name: "EMP", color: 0x57c8ff, ammo: 2, desc: "Stuns everything near the blast" },
+  bouncer: { name: "RICOCHET", color: 0xb6ff5e, ammo: 3, desc: "Skips off terrain up to 3 times" },
 };
 
 const _v = new THREE.Vector3();
@@ -59,6 +63,7 @@ export class Weapons {
     this.shells = [];
     this.firePools = []; // { x, z, r, until, owner, tickAcc }
     this.gravityWells = []; // { pos, until, owner }
+    this.rains = []; // BARRAGE: { x, z, owner, left, nextIn }
     this.shotsFired = 0; // cumulative — playtest telemetry
     this.shellGeo = makeShellGeo();
     this.shellMats = new Map();
@@ -92,14 +97,17 @@ export class Weapons {
 
     if (type === "laser") {
       this.fireLaser(tank, muzzle, dir);
+    } else if (type === "railgun") {
+      this.fireRailgun(tank, muzzle, dir);
     } else {
       const speed = tank.chassis.stats.shellSpeed * (type === "nuke" ? 0.72 : 1);
-      this.spawnShell({
+      const shell = this.spawnShell({
         owner: tank,
         type,
         pos: muzzle,
         vel: dir.clone().multiplyScalar(speed),
       });
+      if (type === "bouncer") shell.bounces = 3;
     }
 
     tank.didFire();
@@ -107,8 +115,40 @@ export class Weapons {
     this.consumeSpecial(tank, type);
     this.ctx.effects.muzzleFlash(muzzle, dir);
     if (type === "laser") this.ctx.audio.laser({});
+    else if (type === "railgun") { this.ctx.audio.laser({ gain: 1 }); this.ctx.audio.cannon({ gain: 0.6 }); }
     else this.ctx.audio.cannon({});
     return true;
+  }
+
+  /**
+   * Railgun: an instant hypervelocity slug that punches THROUGH —
+   * every tank on the line takes the hit, terrain stops it with a
+   * crater, and the air burns where it passed.
+   */
+  fireRailgun(tank, from, dir) {
+    const world = this.ctx.world;
+    const range = 700;
+    let endPoint = _v.copy(from).addScaledVector(dir, range).clone();
+    const hit = new Set();
+    for (let d = 4; d < range; d += 2.2) {
+      _v.copy(from).addScaledVector(dir, d);
+      if (_v.y <= world.heightAt(_v.x, _v.z)) {
+        endPoint = _v.clone();
+        world.deform?.(_v.x, _v.z, 8, 2.5, { burn: 0.9 });
+        this.damageProps(_v, 9, 60);
+        break;
+      }
+      for (const t of world.tanks) {
+        if (t === tank || !t.alive || hit.has(t)) continue;
+        if (_v.distanceToSquared(t.pos) < 30) {
+          hit.add(t);
+          this.applyDamage(t, 70, tank, "RAILGUN");
+          this.ctx.effects.sparks(_v.clone(), 24, 0xe8f4ff);
+        }
+      }
+    }
+    this.ctx.effects.laserBeam(from, endPoint, 0xe8f4ff);
+    this.ctx.effects.shockRing(endPoint, 14, 0xbfe2ff);
   }
 
   consumeSpecial(tank, type) {
@@ -125,14 +165,17 @@ export class Weapons {
     if (type === "nuke") mesh.scale.setScalar(1.8);
     mesh.position.copy(pos);
     this.ctx.scene.add(mesh);
-    this.shells.push({
+    const shell = {
       owner, type, small,
       pos: pos.clone(),
       vel: vel.clone(),
       mesh,
       age: 0,
       trailAcc: 0,
-    });
+      bounces: 0,
+    };
+    this.shells.push(shell);
+    return shell;
   }
 
   fireLaser(tank, from, dir) {
@@ -268,6 +311,19 @@ export class Weapons {
 
       // hit terrain
       if (s.pos.y <= world.heightAt(s.pos.x, s.pos.z)) {
+        if (s.type === "bouncer" && s.bounces > 0) {
+          // skip off the ground like a stone — reflect off the surface
+          // normal, lose some energy, leave a scuff
+          s.bounces--;
+          const n = world.normalAt(s.pos.x, s.pos.z, _v2);
+          const dot = s.vel.dot(n);
+          s.vel.addScaledVector(n, -2 * dot).multiplyScalar(0.78);
+          s.pos.y = world.heightAt(s.pos.x, s.pos.z) + 0.8;
+          this.ctx.effects.dust(s.pos, 1);
+          this.ctx.effects.shockRing(s.pos.clone(), 6, 0xb6ff5e);
+          this.ctx.audio.ricochet({ gain: 0.8 });
+          continue;
+        }
         this.detonate(s, null);
         this.removeShell(i);
         continue;
@@ -297,6 +353,27 @@ export class Weapons {
       }
     }
 
+    // ── barrage rain (delayed shells from the sky) ───────────
+    for (let i = this.rains.length - 1; i >= 0; i--) {
+      const rain = this.rains[i];
+      rain.nextIn -= dt;
+      if (rain.nextIn <= 0) {
+        rain.nextIn = 0.28;
+        rain.left--;
+        const a = Math.random() * Math.PI * 2;
+        const rr = Math.random() * 26;
+        const x = rain.x + Math.cos(a) * rr, z = rain.z + Math.sin(a) * rr;
+        this.spawnShell({
+          owner: rain.owner,
+          type: "standard",
+          pos: new THREE.Vector3(x, world.heightAt(x, z) + 170, z),
+          vel: new THREE.Vector3((Math.random() - 0.5) * 8, -130, (Math.random() - 0.5) * 8),
+        });
+        this.ctx.audio.cannon({ gain: 0.25 });
+        if (rain.left <= 0) this.rains.splice(i, 1);
+      }
+    }
+
     // ── gravity wells ────────────────────────────────────────
     for (let i = this.gravityWells.length - 1; i >= 0; i--) {
       const gw = this.gravityWells[i];
@@ -315,6 +392,7 @@ export class Weapons {
         fx.explosion(gw.pos, { radius: 26, color: 0xc47aff });
         this.ctx.audio.explosion(0.7, {});
         this.ctx.world.deform?.(gw.pos.x, gw.pos.z, 22, 5, { scorch: [0.18, 0.08, 0.26] });
+        this.damageProps(gw.pos, 26, 60);
         this.splash(gw.pos, 26, 70, gw.owner, "SINGULARITY");
         this.gravityWells.splice(i, 1);
       }
@@ -336,6 +414,7 @@ export class Weapons {
         fx.explosion(p, { radius: r });
         this.ctx.audio.explosion(s.small ? 0.3 : 0.5, {});
         this.ctx.world.deform?.(p.x, p.z, s.small ? 5.5 : 11, s.small ? 1.6 : 3.6);
+        this.damageProps(p, r + 4, s.small ? 18 : 45);
         if (directHitTank) this.applyDamage(directHitTank, s.owner.chassis.stats.shellDamage * (s.small ? 0.4 : 1), s.owner, "AP SHELL");
         this.splash(p, r + 5, s.owner.chassis.stats.shellDamage * (s.small ? 0.4 : 0.85), s.owner, "AP SHELL", directHitTank);
         break;
@@ -344,6 +423,7 @@ export class Weapons {
         fx.explosion(p, { radius: 8, color: 0xffe14d });
         this.ctx.audio.explosion(0.45, {});
         this.ctx.world.deform?.(p.x, p.z, 9, 2.4);
+        this.damageProps(p, 12, 26);
         this.splash(p, 10, 26, s.owner, "SCATTER", directHitTank);
         // pop 9 bomblets in a cone upward
         for (let k = 0; k < 9; k++) {
@@ -364,6 +444,7 @@ export class Weapons {
         fx.nuke(p);
         this.ctx.audio.nuke({});
         this.ctx.world.deform?.(p.x, p.z, 74, 23, { burn: 0.95 });
+        this.damageProps(p, 110, 9999); // nothing survives ground zero
         this.splash(p, 95, 230, s.owner, "NUKE", null, 0.35);
         this.ctx.events.onNuke?.(p);
         break;
@@ -374,6 +455,7 @@ export class Weapons {
         this.ctx.audio.explosion(0.55, {});
         this.ctx.audio.fire({});
         this.ctx.world.deform?.(p.x, p.z, 13, 3.0, { scorch: [0.05, 0.03, 0.02], burn: 0.95 });
+        this.damageProps(p, 22, 40, { fire: true });
         this.splash(p, 14, 30, s.owner, "INFERNO", directHitTank);
         this.firePools.push({ x: p.x, z: p.z, r: 22, until: performance.now() / 1000 + 8, owner: s.owner, tickAcc: 0 });
         break;
@@ -385,6 +467,75 @@ export class Weapons {
         this.ctx.events.onGravityWell?.(p);
         break;
       }
+      case "barrage": {
+        // marker pop, then six shells answer from the sky
+        fx.explosion(p, { radius: 6, color: 0xff9c2e });
+        fx.shockRing(p.clone(), 30, 0xff9c2e);
+        this.ctx.audio.explosion(0.35, {});
+        this.ctx.world.deform?.(p.x, p.z, 5, 1.2);
+        this.rains.push({ x: p.x, z: p.z, owner: s.owner, left: 6, nextIn: 0.7 });
+        break;
+      }
+      case "emp": {
+        // blue static burst — everything close goes dark for 3s
+        fx.shockRing(p.clone(), 44, 0x57c8ff);
+        fx.sparks(p.clone(), 40, 0x9fdcff);
+        fx.explosion(p, { radius: 9, color: 0x57c8ff });
+        this.ctx.audio.laser({ gain: 0.9 });
+        const until = performance.now() / 1000 + 3;
+        for (const t of this.ctx.world.tanks) {
+          if (!t.alive) continue;
+          const d = Math.hypot(t.pos.x - p.x, t.pos.z - p.z);
+          if (d < 44) {
+            t.stunnedUntil = Math.max(t.stunnedUntil, until);
+            fx.sparks(t.pos.clone().setY(t.pos.y + 4), 12, 0x9fdcff);
+          }
+        }
+        this.splash(p, 20, 16, s.owner, "EMP", directHitTank);
+        break;
+      }
+      case "bouncer": {
+        // final detonation after the skips
+        fx.explosion(p, { radius: 13, color: 0xb6ff5e });
+        this.ctx.audio.explosion(0.6, {});
+        this.ctx.world.deform?.(p.x, p.z, 12, 3.4);
+        this.damageProps(p, 15, 45);
+        if (directHitTank) this.applyDamage(directHitTank, 55, s.owner, "RICOCHET");
+        this.splash(p, 16, 44, s.owner, "RICOCHET", directHitTank);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Blast damage to props: trees splinter, rocks shatter, monoliths
+   * crack — destroyed props erupt in kind-colored debris and leave a
+   * scorch. The battlefield ends matches visibly poorer than it began.
+   */
+  damageProps(p, radius, power, opts = {}) {
+    const w = this.ctx.world;
+    if (!w.obstacles?.length) return;
+    for (let i = w.obstacles.length - 1; i >= 0; i--) {
+      const o = w.obstacles[i];
+      const d = Math.hypot(o.x - p.x, o.z - p.z);
+      if (d > radius + o.r) continue;
+      o.hp -= power * clamp(1 - d / (radius + o.r + 0.001), 0.3, 1);
+      if (o.hp > 0) continue;
+
+      const pos = _v.set(o.x, (o.y ?? 0) + o.h * 0.35, o.z).clone();
+      this.ctx.effects.explosion(pos, {
+        radius: Math.min(11, 4 + o.r),
+        color: o.debrisColor ?? 0x8a6a40,
+      });
+      this.ctx.effects.sparks(pos, 16, o.debrisColor ?? 0x9a7b52);
+      this.ctx.effects.dust(pos, 1);
+      this.ctx.audio.explosion(0.32, {});
+      // burning trees leave a small fire where they stood
+      if (opts.fire && (o.kind === "tree" || o.kind === "cactus")) {
+        this.ctx.effects.firePool(pos, 6, 4);
+      }
+      w.deform?.(o.x, o.z, Math.max(4, o.r), 1.2, { burn: 0.5 });
+      w.destroyObstacle?.(o);
     }
   }
 
@@ -424,6 +575,7 @@ export class Weapons {
     for (let i = this.shells.length - 1; i >= 0; i--) this.removeShell(i);
     this.firePools.length = 0;
     this.gravityWells.length = 0;
+    this.rains.length = 0;
   }
 
   dispose() {

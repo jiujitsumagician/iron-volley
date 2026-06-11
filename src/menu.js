@@ -6,7 +6,8 @@
  * launch config. DOM-driven, keyboard + mouse both work.
  */
 
-import { CHASSIS } from "./tanks.js";
+import { CHASSIS, SKINS } from "./tanks.js";
+import { NetSession } from "./net.js";
 import { MAPS } from "./maps.js";
 import { audio } from "./audio.js";
 import { tankThumb, mapThumb } from "./thumbs.js";
@@ -95,6 +96,10 @@ export class Menu {
             <div class="big">⚔⚔ SPLIT-SCREEN VERSUS</div>
             <div class="sub">Two commanders — keyboard halves or gamepads</div>
           </div>
+          <div class="choice" data-v="online">
+            <div class="big">🌐 ONLINE VERSUS</div>
+            <div class="sub">Host a room or join with a code</div>
+          </div>
           <div class="choice" data-v="options">
             <div class="big">⚙ OPTIONS</div>
             <div class="sub">Controls · gamepad · audio</div>
@@ -104,9 +109,160 @@ export class Menu {
     `);
     this.bindChoices((v) => {
       if (v === "options") return this.options();
+      if (v === "online") return this.onlineMenu();
       this.state = { mode: v, players: [] };
       this.tankSelect(0);
     });
+  }
+
+  // ── ONLINE: lobby flow ───────────────────────────────────────
+  onlineMenu() {
+    this.netSession?.destroy();
+    this.netSession = null;
+    this.panel(`
+      <div class="logo" style="font-size:42px;">Online Versus</div>
+      <div class="tagline">peer-to-peer · share a 5-letter room code</div>
+      <div class="menu-section">
+        <div class="choices">
+          <div class="choice" data-v="host">
+            <div class="big">⚑ HOST A ROOM</div>
+            <div class="sub">You pick the map. They bring the pain.</div>
+          </div>
+          <div class="choice" data-v="join">
+            <div class="big">⌁ JOIN A ROOM</div>
+            <div class="sub">Enter a friend's room code</div>
+          </div>
+        </div>
+      </div>
+      <div class="row-actions"><button class="btn ghost" data-back>← Back</button></div>
+    `);
+    this.el.querySelector("[data-back]").onclick = () => this.title();
+    this.bindChoices((v) => {
+      this.state = { mode: v === "host" ? "online-host" : "online-guest", players: [] };
+      if (v === "host") this.tankSelect(0);
+      else this.joinCode();
+    });
+  }
+
+  joinCode() {
+    this.panel(`
+      <div class="logo" style="font-size:42px;">Join Room</div>
+      <div class="tagline">enter the host's code</div>
+      <div class="menu-section">
+        <input id="roomcode" maxlength="5" placeholder="•••••" autocomplete="off"
+          style="width:240px; text-align:center; font-size:34px; letter-spacing:.4em; text-transform:uppercase;
+                 background:#0d1219; color:#ffd27a; border:1px solid #2a3645; border-radius:12px; padding:12px 0 12px 12px; outline:none;"/>
+        <div class="sub" id="joinerr" style="color:#ff7a84; margin-top:12px; min-height:16px;"></div>
+      </div>
+      <div class="row-actions">
+        <button class="btn ghost" data-back>← Back</button>
+        <button class="btn" data-go>CONNECT ⟶</button>
+      </div>
+    `);
+    const input = this.el.querySelector("#roomcode");
+    input.focus();
+    this.el.querySelector("[data-back]").onclick = () => this.onlineMenu();
+    const go = async () => {
+      const code = input.value.trim().toUpperCase();
+      if (code.length !== 5) { this.el.querySelector("#joinerr").textContent = "Codes are 5 characters."; return; }
+      this.el.querySelector("#joinerr").textContent = "Connecting…";
+      try {
+        this.netSession = new NetSession();
+        await this.netSession.join(code);
+        audio.uiSelect?.({});
+        this.tankSelect(0);
+      } catch (e) {
+        this.el.querySelector("#joinerr").textContent = e.message;
+        this.netSession?.destroy();
+        this.netSession = null;
+      }
+    };
+    this.el.querySelector("[data-go]").onclick = go;
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  }
+
+  hostLobby() {
+    const p = this.state.players[0];
+    this.panel(`
+      <div class="logo" style="font-size:42px;">War Room</div>
+      <div class="tagline">give your challenger this code</div>
+      <div class="menu-section">
+        <div id="codebox" style="font-size:52px; font-weight:900; letter-spacing:.35em; color:#ffd27a; text-shadow:0 0 24px rgba(255,150,50,.4);">
+          •••••
+        </div>
+        <div class="sub" id="loberr" style="margin-top:14px; min-height:18px;">Opening the room…</div>
+      </div>
+      <div class="row-actions">
+        <button class="btn ghost" data-back>CANCEL</button>
+        <button class="btn" data-go style="display:none;">CHOOSE BATTLEFIELD ⟶</button>
+      </div>
+    `);
+    this.el.querySelector("[data-back]").onclick = () => {
+      this.netSession?.destroy();
+      this.netSession = null;
+      this.onlineMenu();
+    };
+
+    this.netSession = new NetSession();
+    this.netSession.on("hello", (d) => {
+      this.netGuestHello = d;
+      this.el.querySelector("#loberr").innerHTML =
+        `<b style="color:#6dff8a;">${d.name ?? "CHALLENGER"} READY</b> — ${d.chassisId.toUpperCase()}`;
+      this.el.querySelector("[data-go]").style.display = "";
+      this.refreshFocusables();
+      audio.pickup?.({});
+    });
+    this.netSession
+      .host(() => {
+        this.el.querySelector("#loberr").textContent = "Challenger connected — waiting for their loadout…";
+      })
+      .then((code) => {
+        this.el.querySelector("#codebox").textContent = code;
+        this.el.querySelector("#loberr").textContent = "Waiting for a challenger…";
+      })
+      .catch((e) => {
+        this.el.querySelector("#loberr").textContent = e.message;
+      });
+
+    this.el.querySelector("[data-go]").onclick = () => {
+      audio.uiSelect?.({});
+      this.botSelect();
+    };
+  }
+
+  guestWait() {
+    const p = this.state.players[0];
+    this.netSession.send("hello", { name: "CHALLENGER", chassisId: p.chassisId, skinId: p.skinId ?? null });
+    this.panel(`
+      <div class="logo" style="font-size:42px;">Locked In</div>
+      <div class="tagline">waiting for the host to deploy</div>
+      <div class="menu-section">
+        <div class="sub" style="font-size:14px;">Your ${CHASSIS.find((c) => c.id === p.chassisId).name} is fueled and loaded.</div>
+      </div>
+      <div class="row-actions"><button class="btn ghost" data-back>LEAVE</button></div>
+    `);
+    this.el.querySelector("[data-back]").onclick = () => {
+      this.netSession?.destroy();
+      this.netSession = null;
+      this.onlineMenu();
+    };
+    this.netSession.on("config", (cfg) => {
+      const session = this.netSession;
+      this.netSession = null; // game owns it now
+      this.hide();
+      this.onLaunch({
+        mapId: cfg.mapId,
+        mode: "online",
+        players: [{ chassisId: p.chassisId, skinId: p.skinId, name: "CHALLENGER" }],
+        botCount: 0,
+        killTarget: cfg.killTarget,
+        net: { role: "guest", session },
+      });
+    });
+    this.netSession.onClose = () => {
+      this.netSession = null;
+      this.onlineMenu();
+    };
   }
 
   controls() {
@@ -275,9 +431,40 @@ export class Menu {
       <div class="row-actions"><button class="btn ghost" data-back>← Back</button></div>
     `);
     this.el.querySelector("[data-back]").onclick = () =>
-      playerIdx === 0 ? this.title() : this.tankSelect(playerIdx - 1);
+      playerIdx === 0 ? this.title() : this.skinSelect(playerIdx - 1);
     this.bindChoices((v) => {
       this.state.players[playerIdx] = { chassisId: v, name: playerCount === 2 ? `P${playerIdx + 1}` : "YOU" };
+      this.skinSelect(playerIdx);
+    });
+  }
+
+  // ── paint shop: pick a finish for the chosen chassis ─────────
+  skinSelect(playerIdx) {
+    const playerCount = this.state.mode === "versus" ? 2 : 1;
+    const p = this.state.players[playerIdx];
+    const label = playerCount === 2 ? `PLAYER ${playerIdx + 1}` : "COMMANDER";
+    const chassis = CHASSIS.find((c) => c.id === p.chassisId);
+    this.panel(`
+      <div class="logo" style="font-size:42px;">Paint Shop</div>
+      <div class="tagline">${label} — ${chassis.name}</div>
+      <div class="menu-section">
+        <div class="choices">
+          ${SKINS.map((s) => `
+            <div class="choice" data-v="${s.id}" style="min-width:150px; max-width:165px;">
+              <img class="thumb" style="height:84px;" src="${tankThumb(p.chassisId, s.id)}" alt="${s.name}"/>
+              <div class="big" style="font-size:14px;">${s.name}</div>
+              ${s.desc ? `<div class="sub">${s.desc}</div>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      </div>
+      <div class="row-actions"><button class="btn ghost" data-back>← Back</button></div>
+    `);
+    this.el.querySelector("[data-back]").onclick = () => this.tankSelect(playerIdx);
+    this.bindChoices((v) => {
+      p.skinId = v;
+      if (this.state.mode === "online-host") return this.hostLobby();
+      if (this.state.mode === "online-guest") return this.guestWait();
       if (playerIdx + 1 < playerCount) this.tankSelect(playerIdx + 1);
       else this.botSelect();
     });
@@ -383,8 +570,7 @@ export class Menu {
     this.el.querySelector("[data-back]").onclick = () => this.mapSelect();
     this.el.querySelector("[data-go]").onclick = () => {
       audio.uiSelect?.({});
-      this.hide();
-      this.onLaunch({
+      const config = {
         mapId: s.mapId,
         mode: s.mode,
         players: s.players,
@@ -392,7 +578,16 @@ export class Menu {
         difficulty: s.difficulty,
         killTarget: 10,
         friendlyFire: loadFF(),
-      });
+      };
+      if (s.mode === "online-host") {
+        const session = this.netSession;
+        this.netSession = null; // game owns it now
+        session.send("config", { mapId: s.mapId, killTarget: 10 });
+        config.net = { role: "host", session, guest: this.netGuestHello };
+        config.friendlyFire = true; // online duel — shots always count
+      }
+      this.hide();
+      this.onLaunch(config);
     };
   }
 }

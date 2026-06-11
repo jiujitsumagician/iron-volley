@@ -15,16 +15,23 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { buildWorld } from "./terrain.js";
 import { mapById, WORLD_SIZE } from "./maps.js";
 import { Tank } from "./tank.js";
-import { chassisById, TEAM_COLORS } from "./tanks.js";
-import { Weapons } from "./weapons.js";
+import { chassisById, skinById, CHASSIS, SKINS, TEAM_COLORS } from "./tanks.js";
+import { Weapons, ROUND_TYPES } from "./weapons.js";
 import { Pickups } from "./pickups.js";
 import { Effects } from "./effects.js";
 import { AimPreview } from "./aim.js";
+import { encodeSnapshot, rosterFor } from "./net.js";
+import { crateVisual } from "./pickups.js";
 import { BotBrain } from "./ai.js";
 import { Hud, SharedHud } from "./hud.js";
 import { Input, P1_KEYS, P2_KEYS } from "./input.js";
 import { audio } from "./audio.js";
-import { clamp, lerp, rand, pick } from "./util.js";
+import { clamp, lerp, rand, pick, angleDelta } from "./util.js";
+
+/** Shortest-path angular step toward a target (returns the delta). */
+function angleLerp(current, target, k) {
+  return angleDelta(current, target) * k;
+}
 
 const BOT_NAMES = ["RUSTY", "MAMBA", "DOZER", "WIDOW", "TUSK", "HAVOC", "GRIT", "ECHO"];
 
@@ -86,6 +93,9 @@ export class Game {
       heightAt: built.heightAt,
       normalAt: built.normalAt,
       obstacles: built.obstacles,
+      // environment destruction — craters carve real terrain, props die
+      deform: built.deform,
+      destroyObstacle: built.destroyObstacle,
       tanks: [],
     };
 
@@ -103,30 +113,52 @@ export class Game {
       },
     };
 
+    this.net = config.net ?? null;
+
     this.weapons = new Weapons({
       scene: this.scene, world: this.world,
       effects: this.effects, audio, events: this.events,
       friendlyFire: this.friendlyFire,
     });
-    this.pickups = new Pickups({
-      scene: this.scene, world: this.world,
-      effects: this.effects, audio, events: this.events,
-    });
+    if (this.net?.role === "guest") {
+      // the guest renders crates from host snapshots — no local logic
+      this.pickups = { crates: [], update() {}, clear() {} };
+    } else {
+      this.pickups = new Pickups({
+        scene: this.scene, world: this.world,
+        effects: this.effects, audio, events: this.events,
+      });
+    }
 
     // ── combatants ───────────────────────────────────────────
     this.input = new Input();
     this.players = []; // { tank, hud, keys, cam, shake, engineHandle }
     this.bots = []; // { tank, brain }
 
-    const spawns = this.makeSpawnRing(config.players.length + config.botCount);
+    const spawns = this.makeSpawnRing(
+      config.players.length + config.botCount + (this.net?.role === "host" ? 1 : 0)
+    );
     let teamIdx = 0;
 
-    config.players.forEach((p, i) => {
+    if (this.net?.role === "guest") {
+      // one camera seat; the tanks arrive with the host's roster
+      const cam = new THREE.PerspectiveCamera(62, 1, 0.5, 4000);
+      this.players.push({
+        tank: null, hud: null, cam,
+        keys: P1_KEYS, shake: 0,
+        engine: audio.engineStart?.() ?? null,
+        aim: null, view: "third",
+      });
+      this.initNetGuest();
+    }
+
+    if (this.net?.role !== "guest") config.players.forEach((p, i) => {
       const tank = new Tank({
         chassis: chassisById(p.chassisId),
         team: TEAM_COLORS[teamIdx++ % TEAM_COLORS.length],
         name: p.name,
         faction: `p${i}`, // each commander is their own side
+        skin: p.skinId ? skinById(p.skinId) : null,
       });
       this.scene.add(tank.root);
       tank.respawn(spawns[i], this.world);
@@ -152,19 +184,38 @@ export class Game {
       if (config.autoPilot) this.bots.push({ tank, brain: new BotBrain(tank, 1) });
     });
 
-    for (let b = 0; b < config.botCount; b++) {
-      const chassis = chassisById(pick(["scout", "viper", "bastion", "howitzer"]));
+    if (this.net?.role !== "guest") for (let b = 0; b < config.botCount; b++) {
+      const chassis = chassisById(pick(CHASSIS.map((c) => c.id)));
       const tank = new Tank({
         chassis,
         team: TEAM_COLORS[teamIdx++ % TEAM_COLORS.length],
         name: BOT_NAMES[b % BOT_NAMES.length],
         isBot: true,
         faction: "bots", // bots share a side — friendly-fire OFF spares them
+        skin: Math.random() < 0.6 ? skinById(pick(SKINS.slice(1).map((s) => s.id))) : null,
       });
       this.scene.add(tank.root);
       tank.respawn(spawns[config.players.length + b], this.world);
       this.world.tanks.push(tank);
       this.bots.push({ tank, brain: new BotBrain(tank, config.difficulty ?? 1) });
+    }
+
+    // the online opponent rides in the host's simulation
+    if (this.net?.role === "host") {
+      const g = this.net.guest;
+      const tank = new Tank({
+        chassis: chassisById(g.chassisId),
+        team: TEAM_COLORS[teamIdx++ % TEAM_COLORS.length],
+        name: g.name ?? "CHALLENGER",
+        faction: "p-remote",
+        skin: g.skinId ? skinById(g.skinId) : null,
+      });
+      this.scene.add(tank.root);
+      tank.respawn(spawns[spawns.length - 1], this.world);
+      this.world.tanks.push(tank);
+      this.remoteTank = tank;
+      this.remoteInput = { throttle: 0, steer: 0, turretTurn: 0, pitch: 0, fire: false, mg: false };
+      this.initNetHost();
     }
 
     // per-map cinematic exposure + bloom (solo only — split-screen
@@ -203,7 +254,7 @@ export class Game {
 
     // countdown
     this.startFreeze = 2.4;
-    this.players.forEach((p) => p.hud.toast("VOLLEY IN 3…2…1…", 2300));
+    this.players.forEach((p) => p.hud?.toast("VOLLEY IN 3…2…1…", 2300));
     audio.countdown?.({});
 
     // playtest hook
@@ -240,6 +291,17 @@ export class Game {
     this.addTrauma(0.45);
     this.updateScorePill();
 
+    // online host mirrors the kill feed + scoreline to the guest
+    if (this.net?.role === "host") {
+      const sorted = [...this.world.tanks].sort((a, b) => b.kills - a.kills);
+      this.net.session.send("feed", {
+        killer: attacker?.name ?? "OWN GOAL",
+        weapon: weapon ?? "?",
+        victim: victim.name,
+        score: `FIRST TO ${this.killTarget} — ${sorted[0].name} ${sorted[0].kills}`,
+      });
+    }
+
     this.checkWin();
   }
 
@@ -256,9 +318,223 @@ export class Game {
   updateScorePill() {
     const sorted = [...this.world.tanks].sort((a, b) => b.kills - a.kills);
     const leader = sorted[0];
+    if (!leader) return; // online guest before the roster lands
     this.sharedHud.setScore(
       `FIRST TO ${this.killTarget} — ${leader.name} ${leader.kills}`
     );
+  }
+
+  // ── ONLINE: host side ─────────────────────────────────────────
+  initNetHost() {
+    const s = this.net.session;
+    this._snapAcc = 0;
+    s.on("input", (d) => { this.remoteInput = d; });
+    s.onClose = () => {
+      if (this.over || this.disposed) return;
+      this.players[0]?.hud?.toast("OPPONENT DISCONNECTED", 2500);
+      this.over = true;
+      this._finishTimer = setTimeout(() => this.finish(this.players[0].tank), 1800);
+    };
+    const guestIdx = this.world.tanks.indexOf(this.remoteTank);
+    s.send("roster", rosterFor(this, guestIdx));
+  }
+
+  hostNetTick(dt) {
+    this._snapAcc += dt;
+    if (this._snapAcc >= 1 / 15) {
+      this._snapAcc = 0;
+      this.net.session.send("snap", encodeSnapshot(this));
+    }
+  }
+
+  // ── ONLINE: guest side ────────────────────────────────────────
+  initNetGuest() {
+    const s = this.net.session;
+    this._lastSnap = null;
+    this._prevShells = [];
+    this._crateKey = "";
+    this._crateGroup = new THREE.Group();
+    this.scene.add(this._crateGroup);
+    this._inputAcc = 0;
+
+    s.on("roster", (r) => {
+      this.killTarget = r.killTarget;
+      r.tanks.forEach((info, i) => {
+        const tank = new Tank({
+          chassis: chassisById(info.chassisId),
+          team: TEAM_COLORS.find((t) => t.id === info.teamId) ?? TEAM_COLORS[i % TEAM_COLORS.length],
+          name: info.name,
+          skin: info.skinId ? skinById(info.skinId) : null,
+        });
+        tank.netTarget = { x: 0, z: 0, yaw: 0, turretYaw: 0, barrelPitch: 0.18 };
+        this.scene.add(tank.root);
+        this.world.tanks.push(tank);
+        if (i === r.you) {
+          this.players[0].tank = tank;
+          this.players[0].hud = new Hud(document.getElementById("hud1"), "full", `${tank.name} — ${tank.chassis.name}`);
+          this.players[0].hud.toast("CONNECTED — FIGHT", 1500);
+        }
+      });
+      this.updateScorePill();
+    });
+    s.on("snap", (snap) => this.applySnapshot(snap));
+    s.on("feed", (f) => {
+      this.sharedHud.addKill(f.killer, f.weapon, f.victim);
+      if (f.score) this.sharedHud.setScore(f.score);
+      audio.explosion(0.4, {});
+    });
+    s.on("end", (result) => {
+      if (this.over) return;
+      this.over = true;
+      this._finishTimer = setTimeout(() => {
+        if (!this.disposed) this.onMatchEnd(result);
+      }, 800);
+    });
+    s.onClose = () => {
+      if (this.over || this.disposed) return;
+      this.over = true;
+      this.onMatchEnd({
+        winner: "CONNECTION LOST", winnerIsPlayer: false,
+        standings: this.world.tanks.map((t) => ({
+          name: t.name, chassis: t.chassis.name, kills: t.kills, deaths: t.deaths, isPlayer: t === this.players[0].tank,
+        })),
+      });
+    };
+  }
+
+  applySnapshot(snap) {
+    this._lastSnap = snap;
+    const tanks = this.world.tanks;
+    snap.t.forEach((row, i) => {
+      const t = tanks[i];
+      if (!t) return;
+      const [x, z, yaw, tYaw, pitch, hp, alive, speed, reload, specType, specAmmo, mg] = row;
+      t.netTarget = { x, z, yaw, turretYaw: tYaw, barrelPitch: pitch };
+      // death / respawn transitions drive the FX the guest can't simulate
+      const wasAlive = t.alive;
+      t.hp = hp;
+      t.alive = !!alive;
+      t.speed = speed;
+      t.reloadLeft = reload;
+      t.kills = row[12] ?? t.kills;
+      t.special = specType ? { type: specType, ammo: specAmmo } : null;
+      t.netMg = !!mg;
+      if (wasAlive && !t.alive) {
+        this.effects.wreck(t.pos.clone());
+        audio.death({});
+        t.root.visible = false;
+      } else if (!wasAlive && t.alive) {
+        t.root.visible = true;
+        t.pos.set(x, this.world.heightAt(x, z), z);
+      }
+    });
+
+    // shells: spawn/update meshes by index pool; infer detonations
+    this.syncGuestShells(snap.s);
+
+    // crates: rebuild on change, ping where one vanished
+    const key = JSON.stringify(snap.c);
+    if (key !== this._crateKey) {
+      this._crateKey = key;
+      this._crateGroup.clear();
+      this._guestCrates = (snap.c ?? []).map(([x, z, type]) => {
+        const { group } = crateVisual(type);
+        group.position.set(x, this.world.heightAt(x, z), z);
+        this._crateGroup.add(group);
+        return { x, z, type, group };
+      });
+    }
+  }
+
+  syncGuestShells(rows) {
+    if (!this._shellPool) this._shellPool = [];
+    const pool = this._shellPool;
+    // detonation inference: previous shells that have no close successor
+    for (const prev of this._prevShells) {
+      const survived = rows.some(([x, y, z]) =>
+        (x - prev.x) ** 2 + (y - prev.y) ** 2 + (z - prev.z) ** 2 < 900);
+      if (!survived) {
+        const p = new THREE.Vector3(prev.x, Math.max(prev.y, this.world.heightAt(prev.x, prev.z)), prev.z);
+        if (prev.type === "nuke") { this.effects.nuke(p); audio.nuke({}); this.addTrauma(1); }
+        else if (prev.type === "incendiary") { this.effects.explosion(p, { radius: 12, color: 0xff6a2a }); this.effects.firePool(p, 22, 8); audio.explosion(0.55, {}); }
+        else { this.effects.explosion(p, { radius: prev.small ? 7 : 11 }); audio.explosion(prev.small ? 0.3 : 0.5, {}); }
+      }
+    }
+    this._prevShells = rows.map(([x, y, z, type, small]) => ({ x, y, z, type, small }));
+
+    while (pool.length < rows.length) {
+      const mesh = new THREE.Mesh(this.weapons.shellGeo, this.weapons.shellMat(0xffc163));
+      this.scene.add(mesh);
+      pool.push(mesh);
+    }
+    pool.forEach((mesh, i) => {
+      const row = rows[i];
+      if (!row) { mesh.visible = false; return; }
+      mesh.visible = true;
+      mesh.position.set(row[0], row[1], row[2]);
+      mesh.material = this.weapons.shellMat((ROUND_TYPES[row[3]] ?? ROUND_TYPES.standard).color);
+      mesh.scale.setScalar(row[4] ? 0.55 : row[3] === "nuke" ? 1.8 : 1);
+      if (Math.random() < 0.5 && !row[4]) this.effects.smokeTrail(mesh.position);
+    });
+  }
+
+  guestUpdate(dt) {
+    // interpolate everyone toward the latest snapshot
+    const k = 1 - Math.exp(-12 * dt);
+    for (const t of this.world.tanks) {
+      const nt = t.netTarget;
+      if (!nt || !t.alive) continue;
+      t.pos.x = lerp(t.pos.x, nt.x, k);
+      t.pos.z = lerp(t.pos.z, nt.z, k);
+      t.pos.y = this.world.heightAt(t.pos.x, t.pos.z);
+      t.yaw += angleLerp(t.yaw, nt.yaw, k);
+      t.turretYaw += angleLerp(t.turretYaw, nt.turretYaw, k);
+      t.barrelPitch = lerp(t.barrelPitch, nt.barrelPitch, k);
+      t.poseMesh(this.world, dt);
+      // MG tracer mirror (visual only — damage is host-side)
+      if (t.netMg && Math.random() < dt * 20) {
+        const from = t.mgMuzzleWorld(new THREE.Vector3());
+        const dir = new THREE.Vector3(Math.sin(t.absoluteTurretYaw()), 0, Math.cos(t.absoluteTurretYaw()));
+        this.effects.tracer(from, from.clone().addScaledVector(dir, 60 + Math.random() * 40));
+        this.effects.mgFlash(from);
+      }
+    }
+    // crate spin
+    if (this._guestCrates) {
+      for (const c of this._guestCrates) c.group.rotation.y += dt * 0.7;
+    }
+
+    this.effects.update(dt);
+    const me = this.players[0];
+    if (me.tank) {
+      me.engine?.setIntensity?.(Math.abs(me.tank.speed) / me.tank.chassis.stats.speed);
+      me.hud?.update(me.tank, dt);
+    }
+
+    // ship inputs at ~30Hz
+    this._inputAcc += dt;
+    if (this._inputAcc >= 1 / 30) {
+      this._inputAcc = 0;
+      const read = this.input.read(me.keys);
+      if (this.gamepads?.padConnected(0)) {
+        const pad = this.gamepads.read(0);
+        if (Math.abs(pad.throttle) > Math.abs(read.throttle)) read.throttle = pad.throttle;
+        if (Math.abs(pad.steer) > Math.abs(read.steer)) read.steer = pad.steer;
+        if (Math.abs(pad.turretTurn) > Math.abs(read.turretTurn)) read.turretTurn = pad.turretTurn;
+        if (Math.abs(pad.pitch) > Math.abs(read.pitch)) read.pitch = pad.pitch;
+        read.fire = read.fire || pad.fire;
+        read.mg = read.mg || pad.mg;
+      }
+      this.net.session.send("input", {
+        throttle: read.throttle, steer: read.steer,
+        turretTurn: read.turretTurn, pitch: read.pitch,
+        fire: !!read.fire, mg: !!read.mg,
+      });
+    }
+    this.input.endFrame();
+
+    // focus ambience + minimap center on our tank
+    if (me.tank && this.effects.ambientCenter) this.effects.ambientCenter.copy(me.tank.pos);
   }
 
   finish(winner) {
@@ -266,6 +542,14 @@ export class Game {
     const standings = [...this.world.tanks]
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
       .map((t) => ({ name: t.name, chassis: t.chassis.name, kills: t.kills, deaths: t.deaths, isPlayer: !t.isBot }));
+    if (this.net?.role === "host") {
+      // the guest's "you won" perspective is theirs, not ours
+      this.net.session.send("end", {
+        winner: winner.name,
+        winnerIsPlayer: winner === this.remoteTank,
+        standings: standings.map((s) => ({ ...s, isPlayer: s.name === this.remoteTank?.name })),
+      });
+    }
     this.onMatchEnd({ winner: winner.name, winnerIsPlayer: !winner.isBot, standings });
   }
 
@@ -275,14 +559,34 @@ export class Game {
 
   update(dt) {
     this.elapsed += dt;
+
+    // online guest: render-only client — interpolate, emote, send input
+    if (this.net?.role === "guest") {
+      this.guestUpdate(dt);
+      return;
+    }
+
     if (this.startFreeze > 0) {
       this.startFreeze -= dt;
       if (this.startFreeze <= 0) {
         audio.go?.({});
-        this.players.forEach((p) => p.hud.toast("FIRE AT WILL", 1100));
+        this.players.forEach((p) => p.hud?.toast("FIRE AT WILL", 1100));
       }
     }
     const frozen = this.startFreeze > 0 || this.over;
+
+    // online host: drive the challenger's tank with their latest input
+    if (this.net?.role === "host" && this.remoteTank?.alive && !frozen) {
+      const ri = this.remoteInput;
+      const inp = this.remoteTank.input;
+      inp.throttle = clamp(ri.throttle ?? 0, -1, 1);
+      inp.steer = clamp(ri.steer ?? 0, -1, 1);
+      inp.turretTurn = clamp(ri.turretTurn ?? 0, -1, 1);
+      inp.pitch = clamp(ri.pitch ?? 0, -1, 1);
+      inp.mg = !!ri.mg;
+      if (ri.fire) this.weapons.fireCannon(this.remoteTank);
+      if (ri.mg) this.weapons.fireMg(this.remoteTank, dt);
+    }
 
     // ── control ──────────────────────────────────────────────
     this.players.forEach((p, i) => {
@@ -378,6 +682,9 @@ export class Game {
       this._winCheckAcc = 0;
       this.checkWin();
     }
+
+    // online host: stream the world to the challenger
+    if (this.net?.role === "host") this.hostNetTick(dt);
   }
 
   findRespawn(tank) {
@@ -432,6 +739,11 @@ export class Game {
     const t = p.tank;
     p.cam.aspect = aspect;
     p.cam.updateProjectionMatrix();
+    if (!t) { // online guest waiting on the roster — hold a sky shot
+      p.cam.position.set(0, 160, 240);
+      p.cam.lookAt(0, 0, 0);
+      return;
+    }
 
     p.shake = Math.max(0, p.shake - dt * 1.6);
     const sh = p.shake * p.shake;
@@ -489,6 +801,7 @@ export class Game {
     if (this.disposed) return;
     this.disposed = true;
     clearTimeout(this._finishTimer);
+    this.net?.session?.destroy(); // online matches end with the game
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.setScissorTest(false);
     if (this._onResize) window.removeEventListener("resize", this._onResize);

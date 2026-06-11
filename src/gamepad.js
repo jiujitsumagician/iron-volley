@@ -204,7 +204,8 @@ export class GamepadManager {
       throttle: -lsy,
       steer: lsx,
       turretTurn: -rsx,
-      pitch: rsy * (this._bindings.invertY ? -1 : 1),
+      // axis reversed by request: stick UP raises the barrel by default
+      pitch: -rsy * (this._bindings.invertY ? -1 : 1),
       fire: buttonHeld(buttons[this._bindings.fire]),
       mg: buttonHeld(buttons[this._bindings.mg]),
       pauseEdge: !!(this._edges[index] && this._edges[index][this._bindings.pause]),

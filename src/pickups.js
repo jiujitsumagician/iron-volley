@@ -12,7 +12,43 @@ import { ROUND_TYPES } from "./weapons.js";
 import { WORLD_SIZE } from "./maps.js";
 import { pick, rand } from "./util.js";
 
-const SPECIALS = ["scatter", "laser", "nuke", "incendiary", "gravity"];
+const SPECIALS = ["scatter", "laser", "nuke", "incendiary", "gravity", "railgun", "barrage", "emp", "bouncer"];
+
+/**
+ * Pure crate visual (no logic) — shared with the online guest, which
+ * renders crates from host snapshots without running pickup logic.
+ */
+export function crateVisual(type) {
+  const def = ROUND_TYPES[type];
+  const group = new THREE.Group();
+  const crate = new THREE.Mesh(
+    new THREE.BoxGeometry(3.2, 3.2, 3.2),
+    new THREE.MeshStandardMaterial({
+      color: 0x222a33, roughness: 0.5, metalness: 0.55,
+      emissive: def.color, emissiveIntensity: 0.35,
+    })
+  );
+  crate.castShadow = true;
+  crate.position.y = 2.6;
+  group.add(crate);
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(3.5, 3.5, 3.5),
+    new THREE.MeshBasicMaterial({ color: def.color, wireframe: true })
+  );
+  frame.position.y = 2.6;
+  group.add(frame);
+  const pillar = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.9, 1.8, 70, 10, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: def.color, transparent: true, opacity: 0.16,
+      side: THREE.DoubleSide, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  pillar.position.y = 35;
+  group.add(pillar);
+  return { group, crate, frame };
+}
 const ACTIVE_COUNT = 5;
 const RESPAWN_DELAY = 16;
 
@@ -56,36 +92,7 @@ export class Pickups {
       if (n.y > 0.86 && !wet) break;
     }
 
-    const group = new THREE.Group();
-    // the crate
-    const crate = new THREE.Mesh(
-      new THREE.BoxGeometry(3.2, 3.2, 3.2),
-      new THREE.MeshStandardMaterial({
-        color: 0x222a33, roughness: 0.5, metalness: 0.55,
-        emissive: def.color, emissiveIntensity: 0.35,
-      })
-    );
-    crate.castShadow = true;
-    crate.position.y = 2.6;
-    group.add(crate);
-    // glowing edge frame
-    const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(3.5, 3.5, 3.5),
-      new THREE.MeshBasicMaterial({ color: def.color, wireframe: true })
-    );
-    frame.position.y = 2.6;
-    group.add(frame);
-    // light pillar beacon
-    const pillar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.9, 1.8, 70, 10, 1, true),
-      new THREE.MeshBasicMaterial({
-        color: def.color, transparent: true, opacity: 0.16,
-        side: THREE.DoubleSide, depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    );
-    pillar.position.y = 35;
-    group.add(pillar);
+    const { group, crate, frame } = crateVisual(type);
 
     // borrow a pooled beacon light (no add/remove → no shader recompile)
     const lightIndex = this.freeLights.pop();
