@@ -51,7 +51,14 @@ export class Menu {
   // ── gamepad focus navigation ────────────────────────────────
   refreshFocusables() {
     this.focusables = [...this.el.querySelectorAll(".choice:not(.disabled):not([style*='pointer-events:none']), .btn, input[type=range]")];
-    this.focusIdx = -1;
+    // When a controller is driving the menu, land the cursor on the first item
+    // straight away so there's always a visible selection — previously focus
+    // started at -1 (nothing highlighted) until the first d-pad press, so you
+    // couldn't tell where you were. Mouse/keyboard users start unhighlighted
+    // so the hover state isn't fought.
+    const padActive = !!this.gamepads?.anyPadConnected?.();
+    this.focusIdx = padActive && this.focusables.length ? 0 : -1;
+    if (this.focusIdx === 0) this.applyFocus();
   }
 
   applyFocus() {
