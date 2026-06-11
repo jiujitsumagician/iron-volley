@@ -124,12 +124,14 @@ export class Tank {
     // resist, and even then we creep (a fraction of the step) instead of
     // hard-freezing, so you can always climb out of a crater rim or hill
     // rather than getting pinned against it.
-    if (rise > 1.4) {
-      nx = this.pos.x + (nx - this.pos.x) * 0.3;
-      nz = this.pos.z + (nz - this.pos.z) * 0.3;
-      this.speed *= 0.85;
-    } else if (rise > 0.5) {
-      this.speed *= 1 - clamp((rise - 0.5) * 0.7, 0, 0.35) * dt * 6;
+    if (rise > 2.4) {
+      // Only a near-vertical wall actually checks you now — keep most of the
+      // step and barely bleed speed so tanks power up grades and crater rims.
+      nx = this.pos.x + (nx - this.pos.x) * 0.55;
+      nz = this.pos.z + (nz - this.pos.z) * 0.55;
+      this.speed *= 0.94;
+    } else if (rise > 1.1) {
+      this.speed *= 1 - clamp((rise - 1.1) * 0.4, 0, 0.16) * dt * 6;
     }
 
     // obstacle collision (cylinders)
