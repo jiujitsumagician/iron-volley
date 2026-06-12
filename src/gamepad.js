@@ -131,6 +131,13 @@ export class GamepadManager {
     this._flickEdges = [];
     this._flickHeld = [];
     this._capture = null;
+    // player → claimed slot. Slots are claimed on first real input (see
+    // playerSlot) so ghost devices that enumerate as gamepads but never emit
+    // anything (e.g. the ASRock LED controller) can never own a player.
+    this._claims = [null, null];
+    this._active = [];
+    this._axisBase = [];
+    this._ids = [];
 
     this._onConnect = () => this.update();
     this._onDisconnect = () => this.update();
@@ -156,6 +163,22 @@ export class GamepadManager {
       this._edges[i] = edges;
 
       if (pad) {
+        // A different device re-using this slot starts from a clean slate.
+        if (this._ids[i] !== pad.id) {
+          this._ids[i] = pad.id;
+          this._active[i] = false;
+          this._axisBase[i] = null;
+          this._claims = this._claims.map((s) => (s === i ? null : s));
+        }
+        // Activity = any button held, or any axis moved off its first-seen
+        // resting value (so axes parked at ±1, like raw trigger axes, don't
+        // count as input). Only active pads can be claimed by a player.
+        if (!this._axisBase[i]) this._axisBase[i] = (pad.axes || []).map((v) => Number(v) || 0);
+        if (!this._active[i]) {
+          const base = this._axisBase[i];
+          const moved = (pad.axes || []).some((v, k) => Math.abs((Number(v) || 0) - (base[k] ?? 0)) > 0.25);
+          if (moved || current.some(Boolean)) this._active[i] = true;
+        }
         const [lsx, lsy] = applyRadialDeadzone(axis(pad, 0), axis(pad, 1));
         const held = this._flickHeld[i] || { up: false, down: false, left: false, right: false };
 
@@ -200,18 +223,22 @@ export class GamepadManager {
     return this._pads.some((pad) => pad && pad.connected !== false);
   }
 
-  // Players map to CONNECTED pads in order, not raw browser slots. A pad that
-  // reconnects (or flips XInput↔DInput on a power-cycle) can land in slot 1+
-  // with slot 0 left null — raw-slot reads then go dead in the arena while the
-  // menus (which scan every slot) keep working.
+  // Players claim the first pad that produces REAL input, and keep it until it
+  // disconnects. Raw slot order is meaningless: ghost devices can enumerate as
+  // connected gamepads that never emit anything (the ASRock LED controller
+  // sits at slot 0 on Will's machine), and a pad that reconnects or flips
+  // XInput↔DInput can land in any slot. The menus scan every slot so they
+  // always worked — the arena must bind to the pad someone is actually using.
   playerSlot(playerIndex) {
-    let n = 0;
+    const claimed = this._claims[playerIndex];
+    if (claimed != null && this.padConnected(claimed)) return claimed;
+    this._claims[playerIndex] = null;
     for (let i = 0; i < this._pads.length; i += 1) {
-      const pad = this._pads[i];
-      if (pad && pad.connected !== false) {
-        if (n === playerIndex) return i;
-        n += 1;
-      }
+      if (!this.padConnected(i)) continue;
+      if (!this._active[i]) continue;
+      if (this._claims.indexOf(i) !== -1) continue; // another player owns it
+      this._claims[playerIndex] = i;
+      return i;
     }
     return -1;
   }
