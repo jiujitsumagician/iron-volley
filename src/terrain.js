@@ -11,6 +11,7 @@
 import * as THREE from "three";
 import { WORLD_SIZE, makeHeightFn } from "./maps.js";
 import { seededRng, clamp, lerp } from "./util.js";
+import { getModel, modelFootprint } from "./models.js";
 
 const GRID = 220; // segments per side
 
@@ -154,11 +155,19 @@ export function buildWorld(map) {
     markRange(colorAttr, start, count);
   }
 
+  // Cosmetic ground texturing: a fitting CC0 color + normal map for surface
+  // grit and relief, tiled across the terrain. vertexColors still drives the
+  // height-based palette (the map multiplies into it), so the painted ramp is
+  // preserved while the surface gains photographic detail. Falls back to the
+  // procedural micro-noise map if the texture can't load.
+  const ground = groundTextures(map);
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.96,
     metalness: 0.02,
-    map: detailTexture(),
+    map: ground.map ?? detailTexture(),
+    normalMap: ground.normalMap ?? null,
+    normalScale: new THREE.Vector2(0.6, 0.6),
   });
   const terrainMesh = new THREE.Mesh(geo, mat);
   terrainMesh.receiveShadow = true;
@@ -243,6 +252,43 @@ function markRange(attr, start, count) {
   attr.clearUpdateRanges?.();
   if (attr.addUpdateRange) attr.addUpdateRange(start * attr.itemSize, count * attr.itemSize);
   else attr.updateRange = { offset: start * attr.itemSize, count: count * attr.itemSize };
+}
+
+// ── photographic ground texture set, chosen per terrain type ──────
+// Cosmetic only. Cached per texture-set so repeated maps share GPU uploads.
+// Any load failure leaves the field null and the caller falls back to the
+// procedural detail map.
+const _texLoader = new THREE.TextureLoader();
+const _groundCache = new Map();
+function groundTextures(map) {
+  let set = "rock";
+  if (map.embers) set = "lava";                                  // volcano
+  else if (map.grass) set = "grass";                             // green vales
+  else if (map.water && map.water.frozen) set = "snow";          // glacier
+  else if (map.name && /Frost|Glacier|Snow/i.test(map.name)) set = "snow";
+  else if (map.name && /Dune|Atoll|Salt|Tide|Sea/i.test(map.name)) set = "dirt"; // sands
+  if (_groundCache.has(set)) return _groundCache.get(set);
+  const out = { map: null, normalMap: null };
+  try {
+    const repeat = 26;
+    out.map = _texLoader.load(
+      `assets/textures/ground_${set}_color.jpg`, undefined, undefined,
+      () => { try { out.map.image = detailTexture().image; out.map.needsUpdate = true; } catch {} } // fail-safe: 404 -> procedural detail
+    );
+    out.map.wrapS = out.map.wrapT = THREE.RepeatWrapping;
+    out.map.repeat.set(repeat, repeat);
+    out.map.colorSpace = THREE.SRGBColorSpace;
+    out.normalMap = _texLoader.load(
+      `assets/textures/ground_${set}_normal.jpg`, undefined, undefined,
+      () => { try { out.normalMap.image = null; out.normalMap.needsUpdate = true; } catch {} } // fail-safe: 404 -> no normal
+    );
+    out.normalMap.wrapS = out.normalMap.wrapT = THREE.RepeatWrapping;
+    out.normalMap.repeat.set(repeat, repeat);
+  } catch {
+    out.map = null; out.normalMap = null;
+  }
+  _groundCache.set(set, out);
+  return out;
 }
 
 // ── shared micro-noise detail texture (multiplies vertex colors) ──
@@ -434,14 +480,52 @@ function buildProps(map, heightAt, obstacles) {
     }
     if (!mesh) continue;
     mesh.position.set(p.x, p.y - 0.4, p.z);
-    mesh.rotation.y = rng() * Math.PI * 2;
+    const rotY = rng() * Math.PI * 2;
+    mesh.rotation.y = rotY;
     const s = 0.8 + rng() * 0.7;
-    mesh.scale.setScalar(s);
+    // ── cosmetic GLB swap ──────────────────────────────────────
+    // Replace the procedural prop mesh with a fitting CC0 model when one is
+    // available. The procedural builder above STILL RAN and the same two
+    // rng() calls (rotation, scale) were consumed — so the seeded RNG stream,
+    // and therefore every prop position / collider below, is byte-identical;
+    // we only swap the visual. Models are auto-scaled to the prop's collider
+    // footprint (radius * s). Missing model -> procedural mesh.
+    const glb = pickPropModel(spec.kind, kind, v);
+    const model = glb ? getModel(glb) : null;
+    if (model && modelFootprint(glb) > 0.0001) {
+      mesh = model;
+      mesh.position.set(p.x, p.y - 0.4, p.z);
+      mesh.rotation.y = rotY;
+      mesh.scale.setScalar((radius * s) / modelFootprint(glb));
+    } else {
+      mesh.scale.setScalar(s);
+    }
     mesh.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     g.add(mesh);
     obstacles.push({ x: p.x, z: p.z, r: radius * s, h: height * s, y: p.y, hp: hp * s, kind, mesh, debrisColor });
   }
   return g;
+}
+
+// Cosmetic: map a prop kind to a CC0 nature model name (see models.js).
+// `v` is the already-rolled [0,1) variant value for this prop, used to pick a
+// deterministic model variant WITHOUT consuming any extra RNG. Returns null to
+// keep the procedural mesh (cacti, volcanic spires, neon monoliths have no
+// fitting nature model). Terrestrial maps only get trees/rocks/bushes.
+function pickPropModel(specKind, kind, v) {
+  switch (kind) {
+    case "tree":
+      // pine on coniferous/glacier maps, broadleaf on temperate maps
+      if (specKind === "pines+boulders") return v < 0.35 ? "pine_a" : "pine_b";
+      return v < 0.3 ? "tree_broadleaf" : (v < 0.45 ? "tree_dead" : "tree_broadleaf");
+    case "rock":
+      return v < 0.4 ? "rock_a" : (v < 0.7 ? "boulder_a" : (v < 0.85 ? "rock_b" : "boulder_b"));
+    case "stone":
+      return v < 0.5 ? "boulder_a" : "rock_a";
+    // cactus / spire / monolith -> keep procedural
+    default:
+      return null;
+  }
 }
 
 const M = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.9, ...opts });

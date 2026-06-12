@@ -11,6 +11,7 @@
 import * as THREE from "three";
 import { clamp, lerp, angleDelta } from "./util.js";
 import { WORLD_SIZE } from "./maps.js";
+import { getModel } from "./models.js";
 
 // hard playable boundary — sits just inside the rim wall's base. With the
 // new climb-through traction a tank could otherwise crest the rim ramp and
@@ -309,8 +310,20 @@ export function buildTankMesh(b, team, skin = null) {
     emissive: team.accent, emissiveIntensity: 0.25,
   });
 
-  // hull — beveled box silhouette via extruded shape
   const hullH = b.hullH, hw = b.hullW / 2, hl = b.hullL / 2;
+
+  // ── cosmetic GLB hull ──────────────────────────────────────────
+  // When the CC0 vehicle model is loaded we use its low-poly hull + tracks as
+  // the lower-body VISUAL, scaled to this chassis's build length, and keep the
+  // procedural turret/barrel/muzzle/MG rig on top (so aiming + firing are
+  // driven by the same engine groups — unchanged). No model -> fully
+  // procedural body below. Hover chassis stay procedural (the GLB is tracked).
+  const glbHull = (!b.hover) ? buildGlbHull(b) : null;
+  if (glbHull) {
+    root.add(glbHull);
+  } else {
+
+  // hull — beveled box silhouette via extruded shape
   const shape = new THREE.Shape();
   shape.moveTo(-hl * 0.9, 0);
   shape.lineTo(-hl, hullH * 0.55);
@@ -378,6 +391,7 @@ export function buildTankMesh(b, team, skin = null) {
       }
     }
   }
+  } // end procedural lower-body (GLB hull replaces it when present)
 
   // turret
   const turret = new THREE.Group();
@@ -457,4 +471,52 @@ export function buildTankMesh(b, team, skin = null) {
   }
 
   return root;
+}
+
+// ── cosmetic GLB hull (lower body only) ────────────────────────
+// Returns a low-poly vehicle hull+tracks group fitted to this chassis's build
+// dimensions, or null if the model isn't loaded. We strip the model's own
+// turret/gun (the engine drives a procedural turret/barrel on top), reorient
+// the model's forward (-X) to the engine's +Z, scale to build length, and seat
+// it so the tracks rest near y≈0. COSMETIC ONLY — colliders are untouched.
+function buildGlbHull(b) {
+  const model = getModel("vehicle");
+  if (!model) return null;
+  try {
+    // drop the model's turret/gun — the engine turret rig sits on top
+    for (const nm of ["Tank_Turret", "Tank_Gun"]) {
+      const o = model.getObjectByName(nm);
+      o?.parent?.remove(o);
+    }
+    const wrap = new THREE.Group();
+    // forward -X -> engine +Z
+    model.rotation.y = Math.PI / 2;
+    wrap.add(model);
+
+    // measure the remaining hull and fit it to the build length along Z
+    wrap.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(wrap);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    if (!isFinite(size.z) || size.z <= 0.001) return null;
+    const targetLen = b.hullL * 1.16; // tracks read a touch longer than the box hull
+    const s = targetLen / size.z;
+    model.scale.multiplyScalar(s);
+
+    // reseat: center XZ, drop tracks to y≈0.2 (procedural tracks sit ~0.1–2.2)
+    wrap.updateMatrixWorld(true);
+    box.setFromObject(wrap);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    model.position.x += -center.x;
+    model.position.z += -center.z;
+    model.position.y += 0.2 - box.min.y;
+
+    wrap.traverse((o) => {
+      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+    });
+    return wrap;
+  } catch {
+    return null;
+  }
 }

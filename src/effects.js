@@ -141,6 +141,14 @@ export class Effects {
       this._v2.z += this._rand(-3.2, 3.2);
       this._spawnParticle(p, this._v2, 0.45, this._rand(1.1, 2.6), this._rand(3.5, 8), 0x6b6863, 0.18, 1.6, 0.18);
     }
+    // cosmetic: a short cone of hot sparks spitting from the muzzle
+    for (let i = 0; i < 7; i++) {
+      this._v2.copy(d).multiplyScalar(this._rand(10, 24));
+      this._v2.x += this._rand(-2.4, 2.4);
+      this._v2.y += this._rand(-0.6, 2.0);
+      this._v2.z += this._rand(-2.4, 2.4);
+      this._spawnParticle(p, this._v2, this._rand(0.18, 0.34), 0.3, 0.04, 0xffd07a, -10, 0.96, 0.95);
+    }
   }
 
   mgFlash(pos) {

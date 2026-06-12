@@ -7,6 +7,7 @@ import { Menu } from "./menu.js";
 import { TitleScene } from "./title.js";
 import { audio } from "./audio.js";
 import { GamepadManager } from "./gamepad.js";
+import { preloadModels } from "./models.js";
 
 // ── renderer ─────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -188,25 +189,33 @@ requestAnimationFrame(frame);
 
 // ── boot: URL params let tests jump straight into a match ────
 const qp = new URLSearchParams(location.search);
-if (qp.has("test")) {
-  // ?test&map=dunes&bots=3&players=1&chassis=viper&diff=1
-  const players = qp.get("players") === "2"
-    ? [{ chassisId: qp.get("chassis") ?? "viper", name: "P1" }, { chassisId: "bastion", name: "P2" }]
-    : [{ chassisId: qp.get("chassis") ?? "viper", name: "YOU" }];
-  audio.setEnabled?.(false);
-  menuEl.style.display = "none"; // test boot skips the menu flow entirely
-  launchMatch({
-    mapId: qp.get("map") ?? "dunes",
-    mode: players.length === 2 ? "versus" : "solo",
-    players,
-    botCount: parseInt(qp.get("bots") ?? "3", 10),
-    difficulty: parseFloat(qp.get("diff") ?? "1"),
-    killTarget: parseInt(qp.get("kills") ?? "10", 10),
-    autoPilot: qp.has("auto"),
-  });
-} else {
-  menu.show();
+
+// Cosmetic model preload (fail-safe: never blocks boot). We await it so the
+// first match/menu can use the GLB props/tank; any failure just falls back to
+// procedural meshes. preloadModels() itself swallows all per-model errors.
+function boot() {
+  if (qp.has("test")) {
+    // ?test&map=dunes&bots=3&players=1&chassis=viper&diff=1
+    const players = qp.get("players") === "2"
+      ? [{ chassisId: qp.get("chassis") ?? "viper", name: "P1" }, { chassisId: "bastion", name: "P2" }]
+      : [{ chassisId: qp.get("chassis") ?? "viper", name: "YOU" }];
+    audio.setEnabled?.(false);
+    menuEl.style.display = "none"; // test boot skips the menu flow entirely
+    launchMatch({
+      mapId: qp.get("map") ?? "dunes",
+      mode: players.length === 2 ? "versus" : "solo",
+      players,
+      botCount: parseInt(qp.get("bots") ?? "3", 10),
+      difficulty: parseFloat(qp.get("diff") ?? "1"),
+      killTarget: parseInt(qp.get("kills") ?? "10", 10),
+      autoPilot: qp.has("auto"),
+    });
+  } else {
+    menu.show();
+  }
 }
+
+preloadModels().catch(() => {}).then(boot);
 
 // ── gamepad diagnostic overlay (?paddebug) ───────────────────
 // Reads navigator.getGamepads() RAW (bypassing our manager) so we can see
