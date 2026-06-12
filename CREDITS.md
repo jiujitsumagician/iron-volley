@@ -41,3 +41,14 @@ serves as a fail-safe layer/fallback when a sample file is unavailable.
 - Orbitron — Matt McInerney — OFL-1.1
 - Black Ops One — TypeType/James Grieshaber — OFL-1.1
 - Rajdhani — Indian Type Foundry — OFL-1.1
+
+## 3D Models (CC0 — poly.pizza / Quaternius / Kenney low-poly)
+- Tank: Quaternius "Animated Tank" (poly.pizza) — CC0
+- Environment props (trees, rocks, boulders, bushes, crystals, spires) — poly.pizza — CC0
+
+## Terrain textures (CC0)
+- Ground color + normal maps — ambientCG.com — CC0
+
+## Engine / libs (vendored locally for offline play)
+- three.js r180 — MIT — three.js authors (assets/vendor/three/)
+- PeerJS 1.5.4 — MIT (assets/vendor/peerjs.min.js)
