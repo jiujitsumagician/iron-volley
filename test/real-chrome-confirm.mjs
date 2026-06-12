@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 import { spawn } from "node:child_process";
 
 const url = process.argv[2];
-const pad = spawn("python3", ["new URL("./vpad2.py", import.meta.url).pathname", "u2c"], { stdio: ["pipe", "pipe", "inherit"] });
+const pad = spawn("python3", [new URL("./vpad2.py", import.meta.url).pathname, "u2c"], { stdio: ["pipe", "pipe", "inherit"] });
 await new Promise((res) => pad.stdout.once("data", (d) => { console.log(String(d).trim()); res(); }));
 await new Promise((r) => setTimeout(r, 1500));
 const cmd = (line) => new Promise((res) => { pad.stdout.once("data", () => res()); pad.stdin.write(line + "\n"); });
