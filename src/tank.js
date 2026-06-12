@@ -318,7 +318,7 @@ export function buildTankMesh(b, team, skin = null) {
   // procedural turret/barrel/muzzle/MG rig on top (so aiming + firing are
   // driven by the same engine groups — unchanged). No model -> fully
   // procedural body below. Hover chassis stay procedural (the GLB is tracked).
-  const glbHull = (!b.hover) ? buildGlbHull(b) : null;
+  const glbHull = (!b.hover) ? buildGlbHull(b, body) : null;
   if (glbHull) {
     root.add(glbHull);
   } else {
@@ -479,7 +479,7 @@ export function buildTankMesh(b, team, skin = null) {
 // turret/gun (the engine drives a procedural turret/barrel on top), reorient
 // the model's forward (-X) to the engine's +Z, scale to build length, and seat
 // it so the tracks rest near y≈0. COSMETIC ONLY — colliders are untouched.
-function buildGlbHull(b) {
+function buildGlbHull(b, tintMat) {
   const model = getModel("vehicle");
   if (!model) return null;
   try {
@@ -513,7 +513,17 @@ function buildGlbHull(b) {
     model.position.y += 0.2 - box.min.y;
 
     wrap.traverse((o) => {
-      if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+      if (o.isMesh) {
+        o.castShadow = true; o.receiveShadow = true;
+        // tint the model hull to the team / skin colour so versus sides read
+        if (tintMat && o.material) {
+          o.material = o.material.clone();
+          o.material.color.copy(tintMat.color);
+          if (tintMat.map) o.material.map = tintMat.map;
+          o.material.metalness = 0.55; o.material.roughness = 0.5;
+          o.material.needsUpdate = true;
+        }
+      }
     });
     return wrap;
   } catch {

@@ -52,3 +52,9 @@ serves as a fail-safe layer/fallback when a sample file is unavailable.
 ## Engine / libs (vendored locally for offline play)
 - three.js r180 — MIT — three.js authors (assets/vendor/three/)
 - PeerJS 1.5.4 — MIT (assets/vendor/peerjs.min.js)
+
+## Fixes pass — tank model + machine-gun SFX
+- Tank: low-poly static tank model (poly.pizza, CC0), team-colour tinted — replaces a
+  skinned/animated model whose skeleton broke on per-tank clone (the missing "bottom half").
+- Machine gun: ".22 Pistol" single shot from the CC0 "Gunshots" pack (OpenGameArt), trimmed
+  to a 130ms round and fired ~12/s for real rapid-fire (was a synth thump).

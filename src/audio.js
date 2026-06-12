@@ -39,6 +39,7 @@ const SFX_FILES = {
   cannon: "cannon_fire.ogg",
   explosion: "explosion.ogg",
   impact: "impact.ogg",
+  mg: "mg_fire.wav",
   uiClick: "ui_click.ogg",
   uiRollover: "ui_rollover.ogg",
 };
@@ -267,7 +268,10 @@ function cannon(opts) {
 }
 
 function mg(opts) {
-  const v = voice(opts, 0.72);
+  // Real gunshot sample drives the machine gun (fired ~12/s -> rapid fire);
+  // the synth crack layers under it (quieter) and carries on if the sample 404s.
+  const sampled = playSample("mg", opts, 0.55);
+  const v = voice(opts, sampled ? 0.3 : 0.72);
   if (!v) return;
   const ac = v.ac;
   const t = ac.currentTime;

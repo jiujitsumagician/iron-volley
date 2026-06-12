@@ -31,7 +31,7 @@ const MANIFEST = {
   bush: "assets/models/bush_01.glb",
   shrub: "assets/models/shrub_01.glb",
   stump: "assets/models/stump_01.glb",
-  vehicle: "assets/models/vehicle_quaternius.glb",
+  vehicle: "assets/models/tank_static.glb",
 };
 
 export async function preloadModels() {
