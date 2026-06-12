@@ -200,6 +200,30 @@ export class GamepadManager {
     return this._pads.some((pad) => pad && pad.connected !== false);
   }
 
+  // Players map to CONNECTED pads in order, not raw browser slots. A pad that
+  // reconnects (or flips XInput↔DInput on a power-cycle) can land in slot 1+
+  // with slot 0 left null — raw-slot reads then go dead in the arena while the
+  // menus (which scan every slot) keep working.
+  playerSlot(playerIndex) {
+    let n = 0;
+    for (let i = 0; i < this._pads.length; i += 1) {
+      const pad = this._pads[i];
+      if (pad && pad.connected !== false) {
+        if (n === playerIndex) return i;
+        n += 1;
+      }
+    }
+    return -1;
+  }
+
+  playerConnected(playerIndex) {
+    return this.playerSlot(playerIndex) !== -1;
+  }
+
+  readPlayer(playerIndex) {
+    return this.read(this.playerSlot(playerIndex));
+  }
+
   read(index) {
     const pad = this._pads[index];
     if (!pad || pad.connected === false) return { ...ZERO_STATE };

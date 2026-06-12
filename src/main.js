@@ -161,7 +161,7 @@ function frame(now) {
   } else if (endEl.style.display === "flex") {
     if (nav.confirm) endEl.querySelector("[data-again]")?.click();
     else if (nav.back) endEl.querySelector("[data-menu]")?.click();
-  } else if (game && (gamepads.read(0).pauseEdge || gamepads.read(1).pauseEdge)) {
+  } else if (game && (gamepads.readPlayer(0).pauseEdge || gamepads.readPlayer(1).pauseEdge)) {
     setPaused(!paused);
   }
 

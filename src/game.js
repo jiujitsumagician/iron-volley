@@ -516,8 +516,8 @@ export class Game {
     if (this._inputAcc >= 1 / 30) {
       this._inputAcc = 0;
       const read = this.input.read(me.keys);
-      if (this.gamepads?.padConnected(0)) {
-        const pad = this.gamepads.read(0);
+      if (this.gamepads?.playerConnected(0)) {
+        const pad = this.gamepads.readPlayer(0);
         if (Math.abs(pad.throttle) > Math.abs(read.throttle)) read.throttle = pad.throttle;
         if (Math.abs(pad.steer) > Math.abs(read.steer)) read.steer = pad.steer;
         if (Math.abs(pad.turretTurn) > Math.abs(read.turretTurn)) read.turretTurn = pad.turretTurn;
@@ -593,8 +593,8 @@ export class Game {
       if (this.config.autoPilot) return; // brains drive everyone
       const read = this.input.read(p.keys);
       // gamepad overlays the keyboard: whichever input is active wins
-      if (this.gamepads?.padConnected(i)) {
-        const pad = this.gamepads.read(i);
+      if (this.gamepads?.playerConnected(i)) {
+        const pad = this.gamepads.readPlayer(i);
         if (Math.abs(pad.throttle) > Math.abs(read.throttle)) read.throttle = pad.throttle;
         if (Math.abs(pad.steer) > Math.abs(read.steer)) read.steer = pad.steer;
         if (Math.abs(pad.turretTurn) > Math.abs(read.turretTurn)) read.turretTurn = pad.turretTurn;
