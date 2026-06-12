@@ -31,6 +31,7 @@ try {
   if (vols) {
     audio.setVolume?.(vols.master / 100);
     audio.setMusicVolume?.(vols.music / 100);
+    if (vols.sfx != null) audio.setSfxVolume?.(vols.sfx / 100);
   }
 } catch { /* defaults */ }
 
@@ -61,6 +62,9 @@ const menu = new Menu(menuEl, launchMatch, gamepads);
 if (typeof window !== "undefined") window.__MENU = menu;
 
 function launchMatch(config) {
+  // Swap menu/end music for a battle track as the match builds (fail-safe;
+  // crossfades inside the audio module). Audio-only addition.
+  audio.musicStart?.("battle");
   fadeOut(() => {
     endEl.style.display = "none";
     title?.dispose(); title = null; // free the diorama before the match builds
@@ -73,6 +77,8 @@ function launchMatch(config) {
 function showEndScreen(result, config) {
   game?.dispose();
   game = null;
+  // Return to menu music for the post-match screen (audio-only addition).
+  audio.musicStart?.("menu");
   endEl.style.display = "flex";
   endEl.innerHTML = `
     <div class="panel">

@@ -4,6 +4,8 @@
 /** @typedef {{ pan?: number, gain?: number }} AudioOpts */
 /** @typedef {{ setIntensity(v: number): void, setPan(p: number): void, stop(): void }} EngineHandle */
 
+import { sampleMusic } from "./music.js";
+
 const EPS = 0.0001;
 
 /** @type {AudioContext | null} */
@@ -13,6 +15,8 @@ let masterGain = null;
 /** @type {DynamicsCompressorNode | null} */
 let compressor = null;
 /** @type {GainNode | null} */
+let sfxGain = null;
+/** @type {GainNode | null} */
 let musicGain = null;
 /** @type {GainNode | null} */
 let musicBus = null;
@@ -21,9 +25,26 @@ let noiseBuffer = null;
 let enabled = true;
 let volume = 0.8;
 let musicVolume = 0.35;
+let sfxVolume = 1.0;
 let gestureAttached = false;
 /** @type {ReturnType<typeof createMusicState> | null} */
 let music = null;
+
+// ── one-shot SFX samples (decoded into the WebAudio graph) ───────────────────
+// Routed through the same sfx bus as the procedural synth so they respect the
+// master + sfx volume and stereo pan. Loading is fail-safe: a missing or
+// undecodable file just leaves that slot null and the synth plays alone.
+const SFX_BASE = new URL("../assets/sfx/", import.meta.url).href;
+const SFX_FILES = {
+  cannon: "cannon_fire.ogg",
+  explosion: "explosion.ogg",
+  impact: "impact.ogg",
+  uiClick: "ui_click.ogg",
+  uiRollover: "ui_rollover.ogg",
+};
+/** @type {Record<string, AudioBuffer | null>} */
+const sfxBuffers = {};
+let sfxLoadStarted = false;
 
 const clamp = (v, min = 0, max = 1) => Math.max(min, Math.min(max, Number.isFinite(v) ? v : min));
 const midi = (n) => 440 * 2 ** ((n - 69) / 12);
@@ -64,12 +85,16 @@ function ensureContext() {
   compressor.attack.value = 0.006;
   compressor.release.value = 0.18;
   masterGain = ctx.createGain();
+  sfxGain = ctx.createGain();
+  sfxGain.gain.value = sfxVolume;
   musicGain = ctx.createGain();
   musicGain.gain.value = musicVolume;
   compressor.connect(masterGain);
   masterGain.connect(ctx.destination);
+  sfxGain.connect(compressor);
   musicGain.connect(compressor);
   noiseBuffer = makeNoiseBuffer(ctx);
+  loadSfx();
   updateMasterGain();
   attachResumeGesture();
   return ctx;
@@ -85,13 +110,14 @@ function voice(opts, gain = 1) {
   const out = ac.createGain();
   out.gain.value = clamp(opts?.gain ?? 1) * gain;
   let input = out;
+  const dest = /** @type {AudioNode} */ (sfxGain || compressor);
   if (opts && Number.isFinite(opts.pan)) {
     const pan = ac.createStereoPanner();
     pan.pan.value = clamp(/** @type {number} */ (opts.pan), -1, 1);
     out.connect(pan);
-    pan.connect(/** @type {DynamicsCompressorNode} */ (compressor));
+    pan.connect(dest);
   } else {
-    out.connect(/** @type {DynamicsCompressorNode} */ (compressor));
+    out.connect(dest);
   }
   return { ac, input, out };
 }
@@ -120,6 +146,52 @@ function noiseSource(ac, loop = false) {
   src.buffer = noiseBuffer;
   src.loop = loop;
   return src;
+}
+
+// Fetch + decode each SFX file once. Every step is guarded so a 404, a network
+// error, or an undecodable file simply leaves that buffer null — callers then
+// rely on the procedural synth alone.
+function loadSfx() {
+  if (sfxLoadStarted || !ctx || typeof fetch === "undefined") return;
+  sfxLoadStarted = true;
+  for (const [name, file] of Object.entries(SFX_FILES)) {
+    sfxBuffers[name] = null;
+    fetch(SFX_BASE + file)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error("404"))))
+      .then((buf) => ctx.decodeAudioData(buf))
+      .then((decoded) => { sfxBuffers[name] = decoded; })
+      .catch(() => { sfxBuffers[name] = null; });
+  }
+}
+
+// Play a decoded SFX sample (if present) through the sfx bus, honouring pan.
+// Returns true if a sample actually fired, so layered synth can decide whether
+// to dampen itself. No-throw on any failure.
+function playSample(name, opts, gain = 1) {
+  if (!usable() || !sfxGain) return false;
+  const buf = sfxBuffers[name];
+  if (!buf) return false;
+  try {
+    const ac = /** @type {AudioContext} */ (ctx);
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const g = ac.createGain();
+    g.gain.value = clamp((opts?.gain ?? 1) * gain, 0, 4);
+    src.connect(g);
+    if (opts && Number.isFinite(opts.pan)) {
+      const pan = ac.createStereoPanner();
+      pan.pan.value = clamp(/** @type {number} */ (opts.pan), -1, 1);
+      g.connect(pan);
+      pan.connect(/** @type {GainNode} */ (sfxGain));
+    } else {
+      g.connect(/** @type {GainNode} */ (sfxGain));
+    }
+    src.start(ac.currentTime);
+    cleanup(g, ac.currentTime + buf.duration + 0.1);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function osc(ac, type, freq, detune = 0) {
@@ -155,7 +227,10 @@ function thump(freqA, freqB, dur, gain, opts) {
 }
 
 function cannon(opts) {
-  const v = voice(opts, 1);
+  // Sample takes the lead when available; the synth layers under it (quieter)
+  // so the punch survives even if the sample is missing.
+  const sampled = playSample("cannon", opts, 0.9);
+  const v = voice(opts, sampled ? 0.45 : 1);
   if (!v) return;
   const ac = v.ac;
   const t = ac.currentTime;
@@ -237,7 +312,8 @@ function laser(opts) {
 
 function explosion(size = 0.5, opts) {
   const s = clamp(size);
-  const v = voice(opts, 0.85 + s * 0.5);
+  const sampled = playSample("explosion", opts, 0.8 + s * 0.4);
+  const v = voice(opts, (sampled ? 0.5 : 1) * (0.85 + s * 0.5));
   if (!v) return;
   const ac = v.ac;
   const t = ac.currentTime;
@@ -328,7 +404,8 @@ function ricochet(opts) {
 }
 
 function hit(opts) {
-  const v = voice(opts, 0.85);
+  const sampled = playSample("impact", opts, 0.85);
+  const v = voice(opts, sampled ? 0.5 : 0.85);
   if (!v) return;
   const ac = v.ac;
   const t = ac.currentTime;
@@ -415,11 +492,14 @@ function death(opts) {
 }
 
 function uiMove(opts) {
-  thump(620, 460, 0.06, 0.22, opts);
+  // Soft rollover sample on hover/focus; synth blip plays under it (or alone).
+  const sampled = playSample("uiRollover", opts, 0.7);
+  thump(620, 460, 0.06, sampled ? 0.1 : 0.22, opts);
 }
 
 function uiSelect(opts) {
-  const v = voice(opts, 0.28);
+  const sampled = playSample("uiClick", opts, 0.85);
+  const v = voice(opts, sampled ? 0.12 : 0.28);
   if (!v) return;
   const ac = v.ac;
   const t = ac.currentTime;
@@ -470,7 +550,7 @@ function engineStart() {
   const out = ac.createGain();
   const pan = ac.createStereoPanner();
   out.connect(pan);
-  pan.connect(compressor);
+  pan.connect(/** @type {AudioNode} */ (sfxGain || compressor));
   out.gain.value = 0.15;
   const rumbleOsc = osc(ac, "sine", 32);
   const chugLfo = osc(ac, "sine", 7.5);
@@ -657,9 +737,8 @@ function scheduleMusic() {
   }
 }
 
-function musicStart(trackName = "battle") {
+function startSynthMusic(trackName) {
   if (!usable()) return;
-  musicStop(0);
   const ac = /** @type {AudioContext} */ (ctx);
   musicBus = ac.createGain();
   musicBus.gain.value = 1;
@@ -672,7 +751,22 @@ function musicStart(trackName = "battle") {
   scheduleMusic();
 }
 
+function musicStart(trackName = "battle") {
+  if (!usable()) return;
+  // Always tear down whatever was playing (synth bus + any sample track).
+  musicStop(0);
+  const kind = trackName === "menu" ? "menu" : "battle";
+  // Prefer the downloaded sample tracks; crossfade is handled inside music.js.
+  // setEnabled/setVolume keep the element gain in step with the master toggle
+  // and stored music volume. If samples are unavailable, fall back to synth.
+  sampleMusic.setEnabled(enabled);
+  sampleMusic.setVolume(musicVolume);
+  const ok = sampleMusic.start(kind);
+  if (!ok) startSynthMusic(kind);
+}
+
 function musicStop(fade = 0.5) {
+  sampleMusic.stop();
   if (music) {
     globalThis.clearInterval(music.timer);
     music = null;
@@ -701,6 +795,7 @@ export const audio = {
   setEnabled(on) {
     enabled = Boolean(on);
     updateMasterGain();
+    sampleMusic.setEnabled(enabled);
   },
   setVolume(v) {
     volume = clamp(v);
@@ -728,5 +823,10 @@ export const audio = {
   setMusicVolume(v) {
     musicVolume = clamp(v);
     if (musicGain && ctx) musicGain.gain.setTargetAtTime(musicVolume, ctx.currentTime, 0.03);
+    sampleMusic.setVolume(musicVolume);
+  },
+  setSfxVolume(v) {
+    sfxVolume = clamp(v);
+    if (sfxGain && ctx) sfxGain.gain.setTargetAtTime(sfxVolume, ctx.currentTime, 0.03);
   },
 };

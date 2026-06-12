@@ -6,6 +6,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>IRON VOLLEY</title>
 <style>
+  /* self-hosted fonts (offline, no CDN) */
+  @font-face{font-family:'Black Ops One';src:url('assets/fonts/BlackOpsOne-Regular.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap;}
+  @font-face{font-family:'Rajdhani';src:url('assets/fonts/Rajdhani-Regular.ttf') format('truetype');font-weight:400 500;font-style:normal;font-display:swap;}
+  @font-face{font-family:'Rajdhani';src:url('assets/fonts/Rajdhani-SemiBold.ttf') format('truetype');font-weight:600;font-style:normal;font-display:swap;}
+  @font-face{font-family:'Rajdhani';src:url('assets/fonts/Rajdhani-Bold.ttf') format('truetype');font-weight:700;font-style:normal;font-display:swap;}
   :root {
     --amber: #ffb347;
     --amber-hot: #ffd27a;
@@ -13,10 +18,12 @@
     --bg: #07090c;
     --danger: #ff4d4d;
     --ok: #6dff8a;
+    --font-display: "Black Ops One", "Segoe UI", system-ui, sans-serif;
+    --font-ui: "Rajdhani", "Segoe UI", system-ui, sans-serif;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
-  body { font-family: "Segoe UI", system-ui, sans-serif; color: #e8eef4; }
+  body { font-family: var(--font-ui); color: #e8eef4; }
   #app { position: fixed; inset: 0; }
   canvas { display: block; }
 
@@ -66,9 +73,10 @@
     .choices { gap: 10px; }
   }
   .logo {
+    font-family: var(--font-display);
     font-size: clamp(44px, 8vw, 84px);
-    font-weight: 900;
-    letter-spacing: .08em;
+    font-weight: 400;
+    letter-spacing: .04em;
     line-height: .95;
     background: linear-gradient(180deg, #fff 0%, var(--amber-hot) 38%, var(--amber) 55%, #8a4a12 100%);
     -webkit-background-clip: text;
@@ -146,8 +154,9 @@
   }
   .row-actions { margin-top: 30px; display: flex; gap: 14px; justify-content: center; }
   .btn {
+    font-family: var(--font-ui);
     padding: 14px 38px;
-    font-size: 15px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase;
+    font-size: 16px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
     color: #1a0e02;
     background: linear-gradient(180deg, var(--amber-hot), var(--amber) 60%, #d98324);
     border: none; border-radius: 12px; cursor: pointer;
@@ -163,6 +172,181 @@
   kbd {
     background: #1a2230; border: 1px solid #2e3a4a; border-bottom-width: 3px;
     border-radius: 5px; padding: 1px 7px; font-family: inherit; font-size: 10px; color: #aebdca;
+  }
+
+  /* ── TITLE SCREEN (scoped) ──────────────────────────────────
+     A polished war-room front-end. Everything here lives inside
+     .title-screen so the other menu panels keep their existing look.
+     All accents are CSS-only and pointer-events:none so they never
+     interfere with the clickable .choice cards underneath. */
+  .panel.title-screen {
+    position: relative;
+    overflow: hidden;
+    padding: 0;
+    border-color: #2a3850;
+    background:
+      radial-gradient(120% 80% at 50% -10%, rgba(255,150,50,.10), rgba(8,11,16,0) 55%),
+      linear-gradient(180deg, rgba(14,19,27,.96), rgba(8,11,16,.97));
+  }
+  .title-screen .ts-bg { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  /* tactical grid that slowly drifts upward */
+  .title-screen .ts-grid {
+    position: absolute; inset: -40% -10% -10%;
+    background-image:
+      linear-gradient(rgba(120,160,200,.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120,160,200,.07) 1px, transparent 1px);
+    background-size: 46px 46px;
+    transform: perspective(520px) rotateX(58deg);
+    transform-origin: 50% 100%;
+    mask-image: linear-gradient(180deg, transparent, #000 40%, #000 75%, transparent);
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 40%, #000 75%, transparent);
+    animation: tsGridScroll 9s linear infinite;
+  }
+  @keyframes tsGridScroll { to { background-position: 0 46px, 0 0; } }
+  /* radar-style sweep behind the logo */
+  .title-screen .ts-sweep {
+    position: absolute; left: 50%; top: -30%;
+    width: 150%; aspect-ratio: 1; transform: translateX(-50%);
+    background: conic-gradient(from 0deg, rgba(255,170,80,.10), rgba(255,170,80,0) 22%, rgba(255,170,80,0) 100%);
+    border-radius: 50%;
+    animation: tsSweep 7s linear infinite;
+    opacity: .7;
+  }
+  @keyframes tsSweep { to { transform: translateX(-50%) rotate(360deg); } }
+  /* drifting hazard scanlines */
+  .title-screen .ts-scan {
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(180deg, rgba(255,255,255,.025) 0 1px, transparent 1px 4px);
+    mix-blend-mode: overlay; opacity: .5;
+    animation: tsScan 6s linear infinite;
+  }
+  @keyframes tsScan { to { background-position: 0 120px; } }
+  /* corner targeting brackets */
+  .title-screen .ts-bracket {
+    position: absolute; width: 30px; height: 30px;
+    border: 2px solid rgba(255,179,71,.45);
+  }
+  .title-screen .ts-bracket.tl { top: 16px; left: 16px; border-right: 0; border-bottom: 0; }
+  .title-screen .ts-bracket.tr { top: 16px; right: 16px; border-left: 0; border-bottom: 0; }
+  .title-screen .ts-bracket.bl { bottom: 16px; left: 16px; border-right: 0; border-top: 0; }
+  .title-screen .ts-bracket.br { bottom: 16px; right: 16px; border-left: 0; border-top: 0; }
+
+  .title-screen .ts-inner { position: relative; z-index: 1; padding: 48px 44px 30px; }
+
+  /* status strip above the logo */
+  .ts-status {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-size: 11px; letter-spacing: .34em; text-transform: uppercase;
+    color: #8fa9c4; padding: 5px 16px; margin-bottom: 18px;
+    border: 1px solid rgba(120,160,200,.28); border-radius: 999px;
+    background: rgba(10,16,24,.55);
+  }
+  .ts-status .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
+    box-shadow: 0 0 10px var(--ok); animation: tsBlink 1.8s ease-in-out infinite;
+  }
+  @keyframes tsBlink { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* the logo: Black Ops One, layered glow + faint power flicker */
+  .ts-logo {
+    font-family: var(--font-display);
+    font-size: clamp(52px, 10vw, 104px);
+    line-height: .92; letter-spacing: .02em; text-transform: uppercase;
+    background: linear-gradient(180deg, #fff 0%, var(--amber-hot) 40%, var(--amber) 58%, #7c3f0f 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 3px 0 rgba(0,0,0,.5)) drop-shadow(0 6px 26px rgba(255,140,40,.42));
+    animation: tsFlicker 6s steps(1) infinite;
+  }
+  @keyframes tsFlicker {
+    0%, 92%, 100% { opacity: 1; }
+    93% { opacity: .72; } 94% { opacity: 1; } 96% { opacity: .82; } 97% { opacity: 1; }
+  }
+  /* amber underline that sweeps left→right under the logo */
+  .ts-rule {
+    position: relative; height: 3px; width: min(420px, 80%); margin: 14px auto 0;
+    background: linear-gradient(90deg, transparent, rgba(255,179,71,.25), transparent);
+    overflow: hidden;
+  }
+  .ts-rule::after {
+    content: ""; position: absolute; top: 0; left: -40%; height: 100%; width: 40%;
+    background: linear-gradient(90deg, transparent, var(--amber-hot), transparent);
+    box-shadow: 0 0 12px var(--amber-hot);
+    animation: tsRule 3.4s ease-in-out infinite;
+  }
+  @keyframes tsRule { 0% { left: -40%; } 60%,100% { left: 100%; } }
+
+  .ts-tag {
+    margin-top: 16px; color: #93a6ba; font-size: 13px; letter-spacing: .28em;
+    text-transform: uppercase; font-weight: 500;
+  }
+
+  /* vertical tactical menu */
+  .title-screen .choices.vstack { gap: 12px; max-width: 460px; margin-top: 30px; }
+  .title-screen .choice {
+    position: relative;
+    display: flex; align-items: center; gap: 16px;
+    padding: 15px 20px 15px 18px;
+    border: 1px solid #2c3a4c; border-left: 3px solid #3a4c63;
+    border-radius: 10px;
+    background: linear-gradient(90deg, rgba(20,27,38,.92), rgba(13,18,26,.92));
+    overflow: hidden;
+    transition: transform .14s ease, border-color .14s, box-shadow .14s, background .14s;
+  }
+  /* sweep highlight that crosses the card on hover/focus */
+  .title-screen .choice::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,179,71,.10), transparent);
+    transform: translateX(-110%); transition: transform .5s ease; pointer-events: none;
+  }
+  .title-screen .choice:hover::after,
+  .title-screen .choice.focus::after { transform: translateX(110%); }
+  .title-screen .choice .ts-ico {
+    flex: 0 0 auto; width: 34px; height: 34px; display: grid; place-items: center;
+    font-size: 18px; line-height: 1; border-radius: 8px;
+    background: rgba(255,179,71,.08); border: 1px solid rgba(255,179,71,.22);
+    filter: saturate(1.1);
+  }
+  .title-screen .choice .ts-body { flex: 1 1 auto; min-width: 0; }
+  .title-screen .choice .big {
+    font-family: var(--font-ui); font-weight: 700; font-size: 19px;
+    letter-spacing: .12em; text-transform: uppercase; color: #eef4fb;
+  }
+  .title-screen .choice .sub {
+    font-size: 12px; color: #8295a8; margin-top: 2px; letter-spacing: .03em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .title-screen .choice .ts-go {
+    flex: 0 0 auto; color: #57718c; font-size: 18px; font-weight: 700;
+    transform: translateX(-4px); opacity: 0; transition: opacity .14s, transform .14s, color .14s;
+  }
+  .title-screen .choice:hover, .title-screen .choice.focus {
+    transform: translateX(4px);
+    border-color: var(--amber); border-left-color: var(--amber-hot);
+    background: linear-gradient(90deg, rgba(42,32,18,.92), rgba(18,15,11,.92));
+    box-shadow: 0 6px 26px rgba(255,150,50,.20), inset 0 0 0 1px rgba(255,170,80,.14);
+  }
+  .title-screen .choice:hover .ts-go, .title-screen .choice.focus .ts-go {
+    opacity: 1; transform: translateX(0); color: var(--amber-hot);
+  }
+  .title-screen .choice:hover .ts-ico, .title-screen .choice.focus .ts-ico {
+    background: rgba(255,179,71,.16); border-color: rgba(255,179,71,.5);
+  }
+  /* footer credit / build line */
+  .ts-foot {
+    margin-top: 26px; padding-top: 16px; border-top: 1px solid rgba(120,160,200,.14);
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    font-size: 11px; letter-spacing: .14em; color: #5d6e80; text-transform: uppercase;
+  }
+  .ts-foot a { color: #8295a8; text-decoration: none; pointer-events: auto; }
+  .ts-foot a:hover { color: var(--amber-hot); }
+  @media (max-width: 560px) {
+    .title-screen .ts-inner { padding: 34px 20px 22px; }
+    .ts-foot { flex-direction: column; gap: 6px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .title-screen .ts-grid, .title-screen .ts-sweep, .title-screen .ts-scan,
+    .ts-logo, .ts-rule::after, .ts-status .dot { animation: none; }
+    .title-screen .choice::after { display: none; }
   }
 
   /* ── HUD ────────────────────────────────────────────────── */
@@ -240,7 +424,7 @@
   /* end screen */
   #endscreen { display: none; align-items: center; justify-content: center; z-index: 30;
     background: rgba(4,6,9,.78); backdrop-filter: blur(4px); }
-  .endtitle { font-size: clamp(40px, 7vw, 72px); font-weight: 900; letter-spacing: .1em;
+  .endtitle { font-family: var(--font-display); font-size: clamp(40px, 7vw, 72px); font-weight: 400; letter-spacing: .06em;
     background: linear-gradient(180deg, #fff, var(--amber)); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .endsub { color: #9fb0c2; margin-top: 8px; letter-spacing: .2em; font-size: 13px; text-transform: uppercase; }
   .scores { margin: 26px auto 0; border-collapse: collapse; min-width: 380px; }

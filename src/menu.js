@@ -134,36 +134,79 @@ export class Menu {
 
   // ── screens ─────────────────────────────────────────────────
   title() {
+    // Reskin only: keeps every .choice[data-v] + handler the gamepad focus
+    // engine and bindChoices rely on. The chrome (brackets, grid, sweep) is
+    // pure CSS in index.html and pointer-events:none, so it never blocks input.
+    const item = (v, ico, big, sub) => `
+      <div class="choice" data-v="${v}">
+        <div class="ts-ico" aria-hidden="true">${ico}</div>
+        <div class="ts-body">
+          <div class="big">${big}</div>
+          <div class="sub">${sub}</div>
+        </div>
+        <div class="ts-go" aria-hidden="true">▶</div>
+      </div>`;
     this.panel(`
-      <div class="logo">Iron Volley</div>
-      <div class="tagline">Arc the shell. Erase the hill. Win the war.</div>
-      <div class="menu-section">
-        <div class="choices vstack">
-          <div class="choice" data-v="solo">
-            <div class="big">⚔ SOLO OPS</div>
-            <div class="sub">You vs computer-controlled tanks</div>
+      <div class="ts-bg" aria-hidden="true">
+        <div class="ts-grid"></div>
+        <div class="ts-sweep"></div>
+        <div class="ts-scan"></div>
+        <div class="ts-bracket tl"></div><div class="ts-bracket tr"></div>
+        <div class="ts-bracket bl"></div><div class="ts-bracket br"></div>
+      </div>
+      <div class="ts-inner">
+        <div class="ts-status"><span class="dot"></span>Systems Online · Awaiting Orders</div>
+        <div class="ts-logo">Iron Volley</div>
+        <div class="ts-rule"></div>
+        <div class="ts-tag">Arc the shell · Erase the hill · Win the war</div>
+        <div class="menu-section">
+          <div class="choices vstack">
+            ${item("solo", "◣", "Solo Ops", "You vs computer-controlled armor")}
+            ${item("versus", "⚔", "Split-Screen Versus", "Two commanders — keyboard halves or gamepads")}
+            ${item("online", "◉", "Online Versus", "Host a room or join with a 5-letter code")}
+            ${item("options", "⚙", "Options", "Controls · gamepad · audio")}
           </div>
-          <div class="choice" data-v="versus">
-            <div class="big">⚔⚔ SPLIT-SCREEN VERSUS</div>
-            <div class="sub">Two commanders — keyboard halves or gamepads</div>
-          </div>
-          <div class="choice" data-v="online">
-            <div class="big">🌐 ONLINE VERSUS</div>
-            <div class="sub">Host a room or join with a code</div>
-          </div>
-          <div class="choice" data-v="options">
-            <div class="big">⚙ OPTIONS</div>
-            <div class="sub">Controls · gamepad · audio</div>
-          </div>
+        </div>
+        <div class="ts-foot">
+          <span>Iron Volley</span>
+          <a data-credits href="#">Credits</a>
         </div>
       </div>
     `);
+    // Tag the panel so the scoped title-screen CSS applies (panel() always
+    // emits a bare .panel; we only add the modifier class here).
+    this.el.querySelector(".panel")?.classList.add("title-screen");
+    this.refreshFocusables();
+    this.el.querySelector("[data-credits]")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      audio.uiSelect?.({});
+      this.credits();
+    });
     this.bindChoices((v) => {
       if (v === "options") return this.options();
       if (v === "online") return this.onlineMenu();
       this.state = { mode: v, players: [] };
       this.tankSelect(0);
     });
+  }
+
+  // Small read-only credits screen (assets are CC0 — attribution optional,
+  // shown as good practice). Reachable from the title footer.
+  credits() {
+    this.panel(`
+      <div class="logo" style="font-size:42px;">Credits</div>
+      <div class="tagline">music &amp; sound</div>
+      <div class="menu-section">
+        <div class="sub" style="max-width:560px; margin:0 auto; line-height:1.9; font-size:13px; color:#aebdca;">
+          Music &amp; SFX sourced from <b>OpenGameArt.org</b>, all released under
+          <b>CC0 1.0</b> (public domain — no attribution required).<br/><br/>
+          Tracks by cynicmusic, mrpoly, section31, controllerhead, Joth &amp; yd.<br/>
+          See <b>CREDITS.md</b> in the project for the full list.
+        </div>
+      </div>
+      <div class="row-actions"><button class="btn" data-back>← Back</button></div>
+    `);
+    this.el.querySelector("[data-back]").onclick = () => this.title();
   }
 
   // ── ONLINE: lobby flow ───────────────────────────────────────
@@ -352,7 +395,8 @@ export class Menu {
   // ── options: gamepad layout + audio ─────────────────────────
   options() {
     const gm = this.gamepads;
-    const vols = JSON.parse(localStorage.getItem("iv.audio") ?? '{"master":80,"music":35}');
+    const vols = JSON.parse(localStorage.getItem("iv.audio") ?? '{"master":80,"music":35,"sfx":100}');
+    if (vols.sfx == null) vols.sfx = 100;
     const bindRow = (action, label) => `
       <div class="choice" data-rebind="${action}" style="min-width:170px;">
         <div class="big">${label}</div>
@@ -399,6 +443,10 @@ export class Menu {
             <div class="sub">MUSIC — <span id="vMusic">${vols.music}</span>%</div>
             <input type="range" id="rMusic" min="0" max="100" value="${vols.music}" style="width:100%;"/>
           </div>
+          <div class="choice" style="pointer-events:auto; cursor:default; min-width:240px;">
+            <div class="sub">SFX — <span id="vSfx">${vols.sfx}</span>%</div>
+            <input type="range" id="rSfx" min="0" max="100" value="${vols.sfx}" style="width:100%;"/>
+          </div>
         </div>
       </div>
       <div class="row-actions">
@@ -418,6 +466,13 @@ export class Menu {
       vols.music = Number(e.target.value);
       this.el.querySelector("#vMusic").textContent = vols.music;
       audio.setMusicVolume?.(vols.music / 100);
+      saveVols();
+    });
+    this.el.querySelector("#rSfx").addEventListener("input", (e) => {
+      vols.sfx = Number(e.target.value);
+      this.el.querySelector("#vSfx").textContent = vols.sfx;
+      audio.setSfxVolume?.(vols.sfx / 100);
+      audio.uiMove?.({ gain: 0.3 }); // audible preview while dragging
       saveVols();
     });
 
