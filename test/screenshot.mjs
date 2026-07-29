@@ -19,6 +19,9 @@ const browser = await chromium.launch({
   args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+// SwiftShader rasterizes MSAA on the CPU, so a single frame can take many
+// seconds on the denser maps — well past Playwright's 30s default.
+page.setDefaultTimeout(180_000);
 
 const errors = [];
 page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));

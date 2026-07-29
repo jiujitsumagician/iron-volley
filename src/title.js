@@ -11,8 +11,7 @@
 
 import * as THREE from "three";
 import { PMREMGenerator } from "three";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { buildWorld } from "./terrain.js";
+import { buildWorld, makeSkyDome, skyEnvIntensity } from "./terrain.js";
 import { mapById } from "./maps.js";
 import { buildTankMesh } from "./tank.js";
 import { TEAM_COLORS, chassisById } from "./tanks.js";
@@ -32,11 +31,17 @@ export class TitleScene {
     const map = mapById("dunes");
     this.map = map;
 
-    // image-based lighting for believable armor
+    // image-based lighting baked from this map's own sky, so the armor on
+    // the menu reflects the same dusk the match will start in
     const pmrem = new PMREMGenerator(renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.5;
+    const skyScene = new THREE.Scene();
+    const dome = makeSkyDome(map);
+    skyScene.add(dome);
+    this.scene.environment = pmrem.fromScene(skyScene, 0, 1, 5000).texture;
+    this.scene.environmentIntensity = skyEnvIntensity(map);
     pmrem.dispose();
+    dome.geometry.dispose();
+    dome.material.dispose();
 
     this.scene.fog = new THREE.Fog(map.fog.color, map.fog.near, map.fog.far);
     const hemi = new THREE.HemisphereLight(map.hemi.sky, map.hemi.ground, map.hemi.intensity);
@@ -44,13 +49,14 @@ export class TitleScene {
     const sun = new THREE.DirectionalLight(map.sunlight.color, map.sunlight.intensity);
     sun.position.set(...map.sky.sunPos).multiplyScalar(700);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    const S = 120;
+    sun.shadow.mapSize.set(2048, 2048);
+    const S = 90;
     Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 50, far: 1600 });
-    sun.shadow.bias = -0.0004;
+    sun.shadow.bias = -0.00035;
+    sun.shadow.normalBias = 0.6;
     this.scene.add(sun, sun.target);
 
-    const built = buildWorld(map);
+    const built = buildWorld(map, renderer);
     this.world = built;
     this.scene.add(built.group);
 
@@ -108,6 +114,7 @@ export class TitleScene {
 
   update(dt) {
     this.t += dt;
+    this.world.tickVisuals(dt);
 
     // ── cinematic camera: slow orbit, looking just above the duel so
     // the two tanks frame into the lower third (below the title panel) ──

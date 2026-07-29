@@ -15,7 +15,17 @@ import { getModel, modelFootprint } from "./models.js";
 
 const GRID = 220; // segments per side
 
-export function buildWorld(map) {
+// Max anisotropy the GPU will give us, learned from the renderer the first
+// time a world is built. Ground tiles 26× across a 2km field and is nearly
+// always viewed at a grazing angle, which is exactly the case trilinear
+// filtering smears into mud — 16× aniso is the single biggest clarity win
+// available here.
+let _maxAniso = 1;
+
+export function buildWorld(map, renderer = null) {
+  // 8× is where the returns flatten out; going to the driver's max costs
+  // real bandwidth for a difference nobody sees at these tiling rates.
+  if (renderer) _maxAniso = Math.max(_maxAniso, Math.min(8, renderer.capabilities.getMaxAnisotropy()));
   const group = new THREE.Group();
   const baseHeightAt = makeHeightFn(map);
 
@@ -192,8 +202,15 @@ export function buildWorld(map) {
 
   // ── water / lava plane ───────────────────────────────────────
   let waterMesh = null;
+  let waterNormal = null;
   if (map.water) {
     const w = map.water;
+    // A tiling ripple normal map gives the surface something to catch the
+    // sun with. Frozen sheets get it too (as static crazing) but never
+    // scroll — ice doesn't flow.
+    waterNormal = rippleNormalTexture().clone();
+    waterNormal.needsUpdate = true;
+    waterNormal.repeat.set(w.frozen ? 14 : 22, w.frozen ? 14 : 22);
     const wmat = new THREE.MeshStandardMaterial({
       color: w.color,
       transparent: true,
@@ -202,6 +219,11 @@ export function buildWorld(map) {
       metalness: w.frozen ? 0.35 : 0.1,
       emissive: w.emissive ? w.color : 0x000000,
       emissiveIntensity: w.emissive ?? 0,
+      normalMap: waterNormal,
+      normalScale: new THREE.Vector2(
+        w.frozen ? 0.35 : 0.85,
+        w.frozen ? 0.35 : 0.85
+      ),
     });
     waterMesh = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 48, 48), wmat);
     waterMesh.rotation.x = -Math.PI / 2;
@@ -218,7 +240,12 @@ export function buildWorld(map) {
   if (!map.stars && !map.embers) group.add(buildClouds(map));
 
   // ── grass for the green map ──────────────────────────────────
-  if (map.grass) group.add(buildGrass(map, heightAt));
+  let grassWind = null;
+  if (map.grass) {
+    const g = buildGrass(map, heightAt);
+    grassWind = g.userData.wind;
+    group.add(g);
+  }
 
   // ── props ────────────────────────────────────────────────────
   const obstacles = []; // { x, z, r, h, hp, kind, mesh, debrisColor }
@@ -242,7 +269,22 @@ export function buildWorld(map) {
     }
   }
 
-  return { group, heightAt, normalAt, obstacles, waterMesh, terrainMesh, deform, destroyObstacle };
+  // Cosmetic-only animation clock: wind through the grass and the drift of
+  // the water's ripple normals. Driven from the render loop so it keeps
+  // running on the online guest, which never enters the sim update.
+  let visualT = 0;
+  function tickVisuals(dt) {
+    visualT += dt;
+    if (grassWind) grassWind.value = visualT;
+    if (waterNormal && !map.water?.frozen) {
+      waterNormal.offset.set(visualT * 0.014, visualT * 0.009);
+    }
+  }
+
+  return {
+    group, heightAt, normalAt, obstacles, waterMesh, terrainMesh,
+    deform, destroyObstacle, tickVisuals,
+  };
 }
 
 // Flag a contiguous run of vertices for GPU re-upload (partial range so
@@ -278,12 +320,14 @@ function groundTextures(map) {
     out.map.wrapS = out.map.wrapT = THREE.RepeatWrapping;
     out.map.repeat.set(repeat, repeat);
     out.map.colorSpace = THREE.SRGBColorSpace;
+    out.map.anisotropy = _maxAniso;
     out.normalMap = _texLoader.load(
       `assets/textures/ground_${set}_normal.jpg`, undefined, undefined,
       () => { try { out.normalMap.image = null; out.normalMap.needsUpdate = true; } catch {} } // fail-safe: 404 -> no normal
     );
     out.normalMap.wrapS = out.normalMap.wrapT = THREE.RepeatWrapping;
     out.normalMap.repeat.set(repeat, repeat);
+    out.normalMap.anisotropy = _maxAniso;
   } catch {
     out.map = null; out.normalMap = null;
   }
@@ -308,7 +352,84 @@ function detailTexture() {
   _detailTex = new THREE.CanvasTexture(c);
   _detailTex.wrapS = _detailTex.wrapT = THREE.RepeatWrapping;
   _detailTex.repeat.set(110, 110);
+  _detailTex.anisotropy = _maxAniso;
   return _detailTex;
+}
+
+// ── tiling ripple normal map (water / lava / ice) ──────────────
+// Built from integer-frequency waves so the field wraps seamlessly, then
+// differentiated into a tangent-space normal. Stays linear (no sRGB).
+let _rippleTex = null;
+function rippleNormalTexture() {
+  if (_rippleTex) return _rippleTex;
+  const N = 256;
+  const c = document.createElement("canvas");
+  c.width = c.height = N;
+  const ctx = c.getContext("2d");
+  const img = ctx.createImageData(N, N);
+  const TAU = Math.PI * 2;
+  const waves = [
+    { fx: 2, fy: 1, a: 1.0, p: 0.0 },
+    { fx: -1, fy: 3, a: 0.7, p: 1.3 },
+    { fx: 3, fy: -2, a: 0.5, p: 2.6 },
+    { fx: 5, fy: 4, a: 0.28, p: 0.9 },
+    { fx: -4, fy: 6, a: 0.2, p: 3.7 },
+  ];
+  const h = (x, y) => {
+    let s = 0;
+    for (const w of waves) s += w.a * Math.sin(TAU * ((w.fx * x) / N + (w.fy * y) / N) + w.p);
+    return s;
+  };
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const hL = h((x - 1 + N) % N, y), hR = h((x + 1) % N, y);
+      const hD = h(x, (y - 1 + N) % N), hU = h(x, (y + 1) % N);
+      const nx = (hL - hR) * 0.6, ny = (hD - hU) * 0.6;
+      const inv = 1 / Math.hypot(nx, ny, 1);
+      const o = (y * N + x) * 4;
+      img.data[o] = (nx * inv * 0.5 + 0.5) * 255;
+      img.data[o + 1] = (ny * inv * 0.5 + 0.5) * 255;
+      img.data[o + 2] = (inv * 0.5 + 0.5) * 255;
+      img.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  _rippleTex = new THREE.CanvasTexture(c);
+  _rippleTex.wrapS = _rippleTex.wrapT = THREE.RepeatWrapping;
+  _rippleTex.anisotropy = _maxAniso;
+  return _rippleTex;
+}
+
+// ── grass blade alpha mask ─────────────────────────────────────
+// A few tapered blades fanning up from the bottom edge. three samples the
+// green channel for alphaMap, so plain white fill on a clear canvas works.
+let _bladeTex = null;
+function bladeAlphaTexture() {
+  if (_bladeTex) return _bladeTex;
+  const N = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = N;
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, N, N);
+  ctx.fillStyle = "#fff";
+  const blades = [
+    { x: 0.22, lean: -0.14, w: 0.075, top: 0.30 },
+    { x: 0.42, lean: -0.04, w: 0.095, top: 0.08 },
+    { x: 0.62, lean: 0.12, w: 0.085, top: 0.18 },
+    { x: 0.82, lean: 0.22, w: 0.06, top: 0.42 },
+  ];
+  for (const b of blades) {
+    const x0 = b.x * N, halfW = b.w * N;
+    const tipX = (b.x + b.lean) * N, tipY = b.top * N;
+    ctx.beginPath();
+    ctx.moveTo(x0 - halfW, N);
+    ctx.quadraticCurveTo(x0 - halfW * 0.5, (N + tipY) * 0.5, tipX, tipY);
+    ctx.quadraticCurveTo(x0 + halfW * 0.5, (N + tipY) * 0.5, x0 + halfW, N);
+    ctx.closePath();
+    ctx.fill();
+  }
+  _bladeTex = new THREE.CanvasTexture(c);
+  return _bladeTex;
 }
 
 // ── soft billboard clouds ──────────────────────────────────────
@@ -355,15 +476,43 @@ function buildClouds(map) {
 // ── instanced grass tufts (Verdant Vale) ───────────────────────
 function buildGrass(map, heightAt) {
   const rng = seededRng(map.seed * 11 + 3);
-  const blade = new THREE.PlaneGeometry(2.4, 2.6);
+  const blade = new THREE.PlaneGeometry(2.4, 2.6, 1, 2); // segments to bend along
   blade.translate(0, 1.1, 0);
+  // The quads used to render as solid rectangles — an alpha mask cuts them
+  // into actual blades, which is the difference between grass and a field
+  // of green cards.
   const mat = new THREE.MeshStandardMaterial({
     color: 0x3f7a2e,
     side: THREE.DoubleSide,
     roughness: 1,
-    alphaTest: 0.0,
+    alphaMap: bladeAlphaTexture(),
+    alphaTest: 0.42,
   });
-  const COUNT = 2600;
+  // Wind: sway scaled by height up the blade and phased by world position,
+  // so the field ripples instead of swinging in lockstep.
+  const wind = { value: 0 };
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uWind = wind;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform float uWind;")
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+         #ifdef USE_INSTANCING
+         {
+           float up = clamp(position.y / 2.4, 0.0, 1.0);
+           vec3 wp = vec3(instanceMatrix[3][0], 0.0, instanceMatrix[3][2]);
+           float phase = wp.x * 0.06 + wp.z * 0.05;
+           float gust = sin(uWind * 1.7 + phase) * 0.6
+                      + sin(uWind * 0.7 + phase * 2.3) * 0.4;
+           float bend = gust * up * up;
+           transformed.x += bend * 0.85;
+           transformed.z += bend * 0.35;
+         }
+         #endif`
+      );
+  };
+  const COUNT = 4800;
   const inst = new THREE.InstancedMesh(blade, mat, COUNT);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -387,10 +536,31 @@ function buildGrass(map, heightAt) {
   inst.instanceMatrix.needsUpdate = true;
   if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   inst.name = "grass";
+  inst.userData.wind = wind;
   return inst;
 }
 
-function makeSkyDome(map) {
+/**
+ * Environment intensity to pair with this map's sky probe.
+ *
+ * A sky dome is a physically honest light probe, but the maps span a huge
+ * brightness range — noon dunes are ~11× brighter than the volcano at
+ * night — so using it raw leaves armor on the dark maps as an unreadable
+ * silhouette. The exponent partially normalizes that: dark skies get
+ * boosted back toward a usable floor while still staying visibly dimmer
+ * and keeping their colour, so mood survives without losing the tank.
+ */
+export function skyEnvIntensity(map) {
+  const lum = (hex) => {
+    const c = new THREE.Color(hex); // sRGB hex -> linear working space
+    return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  };
+  // the horizon band covers far more of the probe than the zenith does
+  const sky = (lum(map.sky.top) + 2 * lum(map.sky.horizon)) / 3;
+  return clamp(0.35 / Math.pow(Math.max(sky, 0.004), 0.6), 0.45, 3.0);
+}
+
+export function makeSkyDome(map) {
   const geo = new THREE.SphereGeometry(2400, 24, 16);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,

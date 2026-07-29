@@ -11,8 +11,7 @@ import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { buildWorld } from "./terrain.js";
+import { buildWorld, makeSkyDome, skyEnvIntensity } from "./terrain.js";
 import { mapById, WORLD_SIZE } from "./maps.js";
 import { Tank } from "./tank.js";
 import { chassisById, skinById, CHASSIS, SKINS, TEAM_COLORS } from "./tanks.js";
@@ -35,15 +34,24 @@ function angleLerp(current, target, k) {
 
 const BOT_NAMES = ["RUSTY", "MAMBA", "DOZER", "WIDOW", "TUSK", "HAVOC", "GRIT", "ECHO"];
 
-// one shared PMREM environment per renderer lifetime
-let _envMap = null;
-function getEnvMap(renderer) {
-  if (!_envMap) {
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    _envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-  }
-  return _envMap;
+// Image-based lighting baked from the map's OWN sky dome, so armor and
+// metals reflect that battlefield's sky and sun rather than a generic
+// indoor studio. Cached per map — the dome is static for a match.
+const _envMaps = new Map();
+function getEnvMap(renderer, map) {
+  const hit = _envMaps.get(map.id);
+  if (hit) return hit;
+  const skyScene = new THREE.Scene();
+  const dome = makeSkyDome(map);
+  skyScene.add(dome);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  // near/far must straddle the 2400-unit dome or it clips to nothing
+  const tex = pmrem.fromScene(skyScene, 0, 1, 5000).texture;
+  pmrem.dispose();
+  dome.geometry.dispose();
+  dome.material.dispose();
+  _envMaps.set(map.id, tex);
+  return tex;
 }
 
 export class Game {
@@ -62,9 +70,9 @@ export class Game {
     this.scene = new THREE.Scene();
     // image-based environment lighting — metals and armor pick up
     // believable reflections everywhere
-    this.scene.environment = getEnvMap(renderer);
-    this.scene.environmentIntensity = 0.5;
-    const built = buildWorld(this.map);
+    this.scene.environment = getEnvMap(renderer, this.map);
+    this.scene.environmentIntensity = skyEnvIntensity(this.map);
+    const built = buildWorld(this.map, renderer);
     this.scene.add(built.group);
     this.built = built;
     this.waveT = 0;
@@ -76,12 +84,22 @@ export class Game {
     sun.position.set(...this.map.sky.sunPos).multiplyScalar(700);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    const S = 420;
-    Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 50, far: 2400 });
-    sun.shadow.bias = -0.0004;
+    Object.assign(sun.shadow.camera, { near: 50, far: 2400 });
+    sun.shadow.bias = -0.00035;
+    sun.shadow.normalBias = 0.6;
     this.scene.add(sun);
     this.sun = sun;
     this.scene.add(sun.target);
+
+    // The shadow box is fitted to where the tanks actually are instead of
+    // blanketing the whole map, which is what makes tank-scale shadows
+    // resolve at all. Snapping is done in light space (see updateShadows).
+    this.sunDir = new THREE.Vector3(...this.map.sky.sunPos).normalize();
+    this._lightToWorld = new THREE.Matrix4().lookAt(
+      this.sunDir, new THREE.Vector3(), new THREE.Vector3(0, 1, 0)
+    );
+    this._worldToLight = this._lightToWorld.clone().invert();
+    this._shadowSpan = 0;
 
     // ── systems ──────────────────────────────────────────────
     this.effects = new Effects(this.scene);
@@ -218,12 +236,28 @@ export class Game {
       this.initNetHost();
     }
 
+    // aim the fitted shadow box at the spawn ring before the first frame
+    this.updateShadows(this.actionFocus());
+
     // per-map cinematic exposure + bloom (solo only — split-screen
     // keeps the raw scissor path for honest 60fps on one GPU)
     renderer.toneMappingExposure = this.map.exposure ?? 1.05;
     this.composer = null;
     if (this.players.length === 1) {
-      const composer = new EffectComposer(renderer);
+      // EffectComposer's default buffer has no samples, so routing through
+      // it silently threw away the renderer's antialias:true — solo was the
+      // only mode rendering with jagged edges. An explicit multisampled
+      // buffer puts MSAA back on the post path.
+      const dpr = renderer.getPixelRatio();
+      const rt = new THREE.WebGLRenderTarget(
+        Math.max(1, Math.floor(window.innerWidth * dpr)),
+        Math.max(1, Math.floor(window.innerHeight * dpr)),
+        { type: THREE.HalfFloatType, samples: 4 }
+      );
+      const composer = new EffectComposer(renderer, rt);
+      // the composer took its internal size from the buffer's device pixels;
+      // restate it in logical pixels so resizes scale by dpr correctly
+      composer.setSize(window.innerWidth, window.innerHeight);
       composer.addPass(new RenderPass(this.scene, this.players[0].cam));
       const bloom = new UnrealBloomPass(
         new THREE.Vector2(renderer.domElement.width, renderer.domElement.height),
@@ -280,6 +314,49 @@ export class Game {
 
   hudFor(tank) {
     return this.players.find((p) => p.tank === tank)?.hud ?? null;
+  }
+
+  /** Centre of everything that needs to be lit — both split-screen seats. */
+  actionFocus(out = new THREE.Vector3()) {
+    out.set(0, 0, 0);
+    let n = 0;
+    for (const p of this.players) {
+      if (!p.tank) continue;
+      out.add(p.tank.pos);
+      n++;
+    }
+    if (n) out.divideScalar(n);
+    return out;
+  }
+
+  /**
+   * Fit + snap the sun's shadow box. The span grows to cover every player
+   * (split-screen commanders drift far apart) and is quantized so it only
+   * changes in steps; the centre is snapped to whole shadow-map texels in
+   * light space so the sharper map doesn't crawl as the camera moves.
+   */
+  updateShadows(focus) {
+    const cam = this.sun.shadow.camera;
+    let reach = 110; // covers the chase camera's own frustum around one tank
+    for (const p of this.players) {
+      if (p.tank) reach = Math.max(reach, p.tank.pos.distanceTo(focus) + 110);
+    }
+    const span = Math.min(460, Math.ceil(reach / 32) * 32);
+    if (span !== this._shadowSpan) {
+      this._shadowSpan = span;
+      cam.left = -span; cam.right = span;
+      cam.top = span; cam.bottom = -span;
+      cam.updateProjectionMatrix();
+    }
+
+    const texel = (2 * span) / this.sun.shadow.mapSize.width;
+    const c = focus.clone().applyMatrix4(this._worldToLight);
+    c.x = Math.round(c.x / texel) * texel;
+    c.y = Math.round(c.y / texel) * texel;
+    c.applyMatrix4(this._lightToWorld);
+
+    this.sun.target.position.copy(c);
+    this.sun.position.copy(c).addScaledVector(this.sunDir, 700);
   }
 
   handleKill(victim, attacker, weapon) {
@@ -533,8 +610,12 @@ export class Game {
     }
     this.input.endFrame();
 
-    // focus ambience + minimap center on our tank
-    if (me.tank && this.effects.ambientCenter) this.effects.ambientCenter.copy(me.tank.pos);
+    // focus lighting + ambience on our tank (the fitted shadow box only
+    // covers the action, so the guest has to steer it too)
+    if (me.tank) {
+      this.updateShadows(me.tank.pos);
+      if (this.effects.ambientCenter) this.effects.ambientCenter.copy(me.tank.pos);
+    }
   }
 
   finish(winner) {
@@ -661,11 +742,8 @@ export class Game {
     }
 
     // shadow camera follows the action centroid
-    const focus = this.players[0]?.tank.pos ?? new THREE.Vector3();
-    this.sun.target.position.copy(focus);
-    this.sun.position.copy(focus).add(
-      new THREE.Vector3(...this.map.sky.sunPos).multiplyScalar(700)
-    );
+    const focus = this.actionFocus();
+    this.updateShadows(focus);
     if (this.effects.ambientCenter) this.effects.ambientCenter.copy(focus);
 
     // ── HUD + aim overlays + minimap ─────────────────────────
@@ -714,6 +792,7 @@ export class Game {
 
   render(dt) {
     const r = this.renderer;
+    this.built.tickVisuals(dt);
     const w = r.domElement.clientWidth, h = r.domElement.clientHeight;
     const n = this.players.length;
 
