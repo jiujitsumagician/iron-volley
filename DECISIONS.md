@@ -59,3 +59,55 @@ Operator absent; in-scope calls logged here per the goal.
   it called these changes a 2x regression where real hardware shows none. The harness got a
   raised Playwright timeout rather than having the features tuned down to suit it.
 - Mechanics: gameplay-logic files untouched; full headless playtest PASSED (26/26).
+
+## Wave 4 (tank models)
+- The shared GLB hull is RETIRED. `tank_static.glb` was being fitted to all ten
+  tracked chassis, so JACKAL and GOLIATH — a 9.4-unit scout and a 13.2-unit
+  superheavy — wore the identical rounded lozenge, and `plated` / `lowProfile` /
+  `wheels` had no visible effect at all. Worse, the GLB branch skipped the
+  procedural track code entirely, so tracked tanks rendered with NO visible
+  tracks, road wheels or sprockets. Everything is procedural again, but built
+  per-chassis from the build flags, which is what "each chassis reads instantly
+  at a distance" asked for in the first place.
+- New `src/tankart.js` holds all tank visuals (materials, generated textures,
+  hull/running-gear/turret/gun builders). tank.js keeps the entity + the frozen
+  rig and just composes them, so the mechanics audit has one file to read.
+- Real running gear: the track belt is generated geometry — the convex hull of
+  the front idler and rear drive sprocket (two arcs joined by their external
+  tangents), with arc-length UVs so the tread scrolls correctly around the
+  curves rather than sliding sideways. Road wheels come from `b.wheels`, plus
+  sprocket teeth, idler, return rollers and a fender.
+- Armour is textured from a generated height field Sobel'd into a normal map:
+  panel seams, weld beads, rivet lines, scuffs, plus a matching roughness map.
+  Deterministic (fixed LCG seed) so the plate is identical every boot.
+- Painted armour is a DIELECTRIC — metalness 0.08, not the 0.5 the first pass
+  used, which made every tank look like polished brass under the wave-3 sky IBL.
+  Gun tube and track links keep their metalness.
+- Tanks now RECEIVE shadows, not just cast them. Wave 3 fitted the sun's shadow
+  box tightly to the action; with receiveShadow off, tanks were the one thing in
+  the scene that couldn't benefit from it.
+- Draw calls held roughly flat despite ~40 new greebles per tank: static detail
+  is accumulated per material and merged once via BufferGeometryUtils. Only the
+  road wheels and belts stay separate, because they animate. mergeGeometries
+  rejects a batch that mixes indexed and non-indexed geometry — and this one
+  always does, since ExtrudeGeometry is non-indexed and Box/Cylinder are not —
+  so everything is flattened to non-indexed first.
+- Wheel spin + belt scroll moved from `update()` into `poseMesh()`. The online
+  guest never runs update(), so its tanks used to slide around on dead tracks.
+- `disposeMaterial()` frees every texture slot, not just `.map`. Callers only
+  disposed `.map`, which was fine when that was all a tank material carried;
+  armour now brings a per-tank normal + roughness clone, so a match teardown was
+  leaking a dozen GPU textures. envMap is excluded — that slot is the shared
+  per-map PMREM probe.
+- Two geometry bugs found and fixed by inspection, both invisible in the
+  SwiftShader harness: `rotateY(+PI/2)` on the extruded hull mirrors it
+  front-to-back AND leaves it a full hull-width off centre (it must be
+  `-PI/2`); and the glacis was a separate full-width plate bolted onto a face it
+  already matched, which read as a fin floating off every tank's nose — the nose
+  break is now part of the hull profile.
+- Judged on a real GPU via a new `test/gallery.mjs` bench (contact sheet of all
+  twelve chassis, plus single-chassis views), for the same reason wave 3 gave:
+  SwiftShader is too coarse to show material or geometry detail.
+- Mechanics: every gameplay-logic file byte-clean; the rig offsets
+  (turret/barrel/muzzle/mgMuzzle/tubeOffsets) are byte-identical to the previous
+  commit, so shells still spawn exactly where they did. Full playtest PASSED.

@@ -9,6 +9,7 @@
 
 import * as THREE from "three";
 import { buildTankMesh } from "./tank.js";
+import { disposeMaterial } from "./tankart.js";
 import { chassisById, TEAM_COLORS, skinById } from "./tanks.js";
 import { mapById, makeHeightFn, WORLD_SIZE } from "./maps.js";
 import { clamp, lerp } from "./util.js";
@@ -35,7 +36,7 @@ function snap(scene, cam) {
   scene.traverse((o) => {
     o.geometry?.dispose?.();
     if (o.material) {
-      (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose?.());
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach(disposeMaterial);
     }
   });
   return url;

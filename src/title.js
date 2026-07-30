@@ -14,6 +14,7 @@ import { PMREMGenerator } from "three";
 import { buildWorld, makeSkyDome, skyEnvIntensity } from "./terrain.js";
 import { mapById } from "./maps.js";
 import { buildTankMesh } from "./tank.js";
+import { disposeMaterial } from "./tankart.js";
 import { TEAM_COLORS, chassisById } from "./tanks.js";
 import { Effects } from "./effects.js";
 import { GRAVITY } from "./weapons.js";
@@ -195,10 +196,7 @@ export class TitleScene {
     this.scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose?.();
       if (o.material) {
-        (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
-          m.map?.dispose?.();
-          m.dispose?.();
-        });
+        (Array.isArray(o.material) ? o.material : [o.material]).forEach(disposeMaterial);
       }
     });
     this.scene.environment?.dispose?.();

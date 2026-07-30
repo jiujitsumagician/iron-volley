@@ -1,0 +1,160 @@
+<!doctype html>
+<!--
+  Tank inspection harness. NOT part of the game — a visual bench that renders
+  the chassis roster close-up under the real in-game environment lighting so
+  tank materials/geometry can be judged on a real GPU (the SwiftShader
+  screenshot harness is too coarse to show armor detail).
+
+    /test/gallery.html?map=dunes            contact sheet, all 12 chassis
+    /test/gallery.html?one=bastion&map=frost  single chassis, large
+    ...&skin=woodland                        wear a paint finish
+    ...&spin=2.4                             yaw in radians
+-->
+<meta charset="utf-8" />
+<!-- models.js resolves its GLB manifest RELATIVE to the document, so without
+     this the page's /test/ prefix sends every asset fetch to /test/assets/*
+     and the GLB hull silently 404s into the procedural fallback — i.e. the
+     bench would grade a tank the game never renders. -->
+<base href="/" />
+<title>IRON VOLLEY — tank gallery</title>
+<style>
+  html, body { margin: 0; background: #0b0f14; overflow: hidden; }
+  #wrap { position: relative; width: 1600px; height: 1200px; }
+  canvas { display: block; }
+  .lbl {
+    position: absolute; color: #cfe3ff; font: 600 15px/1 monospace;
+    letter-spacing: .08em; text-shadow: 0 2px 5px #000, 0 0 2px #000;
+    pointer-events: none;
+  }
+</style>
+<div id="wrap"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "/assets/vendor/three/three.module.js",
+    "three/addons/": "/assets/vendor/three/addons/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { buildTankMesh } from "/src/tank.js";
+import { CHASSIS, TEAM_COLORS, skinById } from "/src/tanks.js";
+import { mapById } from "/src/maps.js";
+import { makeSkyDome, skyEnvIntensity } from "/src/terrain.js";
+import { preloadModels } from "/src/models.js";
+
+const q = new URLSearchParams(location.search);
+const map = mapById(q.get("map") || "dunes");
+const skin = q.get("skin") ? skinById(q.get("skin")) : null;
+const spin = q.get("spin") ? Number(q.get("spin")) : 2.45;
+// accept either the chassis id ("scout") or its display name ("jackal") —
+// they differ for most of the roster and guessing wrong renders an empty frame
+const only = q.get("one")?.toLowerCase();
+const list = only
+  ? CHASSIS.filter((c) => c.id.toLowerCase() === only || c.name.toLowerCase() === only)
+  : CHASSIS;
+if (only && !list.length) throw new Error(`no chassis matching "${only}"`);
+
+const W = 1600, H = 1200;
+const wrap = document.getElementById("wrap");
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = map.exposure ?? 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+wrap.appendChild(renderer.domElement);
+
+await preloadModels();
+
+// same IBL the game bakes: PMREM off this map's own sky dome
+const skyScene = new THREE.Scene();
+const dome = makeSkyDome(map);
+skyScene.add(dome);
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envTex = pmrem.fromScene(skyScene, 0, 1, 5000).texture;
+pmrem.dispose();
+
+const scene = new THREE.Scene();
+scene.environment = envTex;
+scene.environmentIntensity = skyEnvIntensity(map);
+scene.background = new THREE.Color(map.sky.horizon).multiplyScalar(0.35);
+
+scene.add(new THREE.HemisphereLight(map.hemi.sky, map.hemi.ground, map.hemi.intensity));
+const sun = new THREE.DirectionalLight(map.sunlight.color, map.sunlight.intensity);
+sun.position.set(...map.sky.sunPos).multiplyScalar(700);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { near: 50, far: 2400, left: -30, right: 30, top: 30, bottom: -30 });
+sun.shadow.bias = -0.00035;
+sun.shadow.normalBias = 0.6;
+scene.add(sun);
+
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(60, 48),
+  new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 0.96, metalness: 0.0 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// one tank in the scene at a time; each cell re-renders with a fitted camera
+const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 300);
+const cols = only ? 1 : 4;
+const rows = only ? 1 : 3;
+const cw = W / cols, ch = H / rows;
+cam.aspect = cw / ch;
+cam.updateProjectionMatrix();
+
+renderer.autoClear = false;
+renderer.setScissorTest(true);
+renderer.clear();
+
+for (let i = 0; i < list.length; i++) {
+  const chassis = list[i];
+  const tank = buildTankMesh(chassis.build, TEAM_COLORS[0], skin);
+  tank.rotation.y = spin;
+  const barrel = tank.getObjectByName("barrel");
+  if (barrel) barrel.rotation.x = -0.16;
+  scene.add(tank);
+
+  // frame to the chassis so every cell shows the tank at comparable size
+  const s = chassis.build.hullL / 11;
+  const d = only ? 1.7 : 2.45;
+  cam.position.set(11.5 * s * d, 6.0 * s * d, 13.5 * s * d);
+  cam.lookAt(0, 2.2, 0);
+
+  const col = i % cols, row = Math.floor(i / cols);
+  const x = col * cw, y = H - (row + 1) * ch;
+  renderer.setViewport(x, y, cw, ch);
+  renderer.setScissor(x, y, cw, ch);
+  renderer.render(scene, cam);
+
+  // budget check: merging static detail is supposed to keep the per-tank mesh
+  // count low even though each chassis grew ~40 greebles
+  let meshes = 0, tris = 0;
+  tank.traverse((o) => {
+    if (!o.isMesh) return;
+    meshes++;
+    const g = o.geometry;
+    tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+  });
+  (window.__GALLERY_STATS ||= []).push({ id: chassis.id, meshes, tris: Math.round(tris) });
+
+  const lbl = document.createElement("div");
+  lbl.className = "lbl";
+  lbl.style.left = `${x + 12}px`;
+  lbl.style.top = `${row * ch + 10}px`;
+  lbl.textContent = `${chassis.name}  ·  ${chassis.role}`;
+  wrap.appendChild(lbl);
+
+  scene.remove(tank);
+}
+
+renderer.setScissorTest(false);
+window.__GALLERY_READY = true;
+</script>

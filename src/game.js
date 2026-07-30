@@ -14,6 +14,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { buildWorld, makeSkyDome, skyEnvIntensity } from "./terrain.js";
 import { mapById, WORLD_SIZE } from "./maps.js";
 import { Tank } from "./tank.js";
+import { disposeMaterial } from "./tankart.js";
 import { chassisById, skinById, CHASSIS, SKINS, TEAM_COLORS } from "./tanks.js";
 import { Weapons, ROUND_TYPES } from "./weapons.js";
 import { Pickups } from "./pickups.js";
@@ -895,10 +896,7 @@ export class Game {
     this.scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose?.();
       if (o.material) {
-        (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
-          m.map?.dispose?.();
-          m.dispose?.();
-        });
+        (Array.isArray(o.material) ? o.material : [o.material]).forEach(disposeMaterial);
       }
     });
     this.effects.dispose();
