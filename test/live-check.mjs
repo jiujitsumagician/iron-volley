@@ -6,6 +6,11 @@ const browser = await chromium.launch({
   args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+// SwiftShader rasterizes the whole frame on the CPU, and a scene full of
+// tracked tanks pushes a single capture past Playwright's 30s default — the
+// same reason screenshot.mjs raises its own timeout. Not a signal about the
+// real build; a real GPU renders these frames in well under a second.
+page.setDefaultTimeout(120_000);
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
