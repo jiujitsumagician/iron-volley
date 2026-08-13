@@ -297,25 +297,40 @@ export class Menu {
       this.onlineMenu();
     };
 
+    this.netHelloShown = false;
     this.netSession = new NetSession();
     this.netSession.on("hello", (d) => {
       this.netGuestHello = d;
-      this.el.querySelector("#loberr").innerHTML =
+      // Always ack so the guest stops resending its loadout, even on the
+      // duplicates that arrive before the first ack lands.
+      this.netSession?.send("helloack", {});
+      if (this.netHelloShown) return;
+      const loberr = this.el.querySelector("#loberr");
+      const goBtn = this.el.querySelector("[data-go]");
+      if (!loberr || !goBtn) return;
+      this.netHelloShown = true;
+      loberr.innerHTML =
         `<b style="color:#6dff8a;">${d.name ?? "CHALLENGER"} READY</b> — ${d.chassisId.toUpperCase()}`;
-      this.el.querySelector("[data-go]").style.display = "";
+      goBtn.style.display = "";
       this.refreshFocusables();
       audio.pickup?.({});
     });
     this.netSession
       .host(() => {
-        this.el.querySelector("#loberr").textContent = "Challenger connected — waiting for their loadout…";
+        // Null-guard: these resolve asynchronously and may land after the
+        // user hit CANCEL and the panel changed.
+        const el = this.el.querySelector("#loberr");
+        if (el) el.textContent = "Challenger connected — waiting for their loadout…";
       })
       .then((code) => {
-        this.el.querySelector("#codebox").textContent = code;
-        this.el.querySelector("#loberr").textContent = "Waiting for a challenger…";
+        const box = this.el.querySelector("#codebox");
+        const el = this.el.querySelector("#loberr");
+        if (box) box.textContent = code;
+        if (el) el.textContent = "Waiting for a challenger…";
       })
       .catch((e) => {
-        this.el.querySelector("#loberr").textContent = e.message;
+        const el = this.el.querySelector("#loberr");
+        if (el) el.textContent = e.message;
       });
 
     this.el.querySelector("[data-go]").onclick = () => {
@@ -326,7 +341,17 @@ export class Menu {
 
   guestWait() {
     const p = this.state.players[0];
-    this.netSession.send("hello", { name: "CHALLENGER", chassisId: p.chassisId, skinId: p.skinId ?? null });
+    const helloMsg = { name: "CHALLENGER", chassisId: p.chassisId, skinId: p.skinId ?? null };
+    // Keep announcing our loadout until the host acknowledges it (or the
+    // game config arrives). A single send can be lost during channel
+    // warm-up, which used to leave the host stuck "waiting for their
+    // loadout" with no way to start.
+    let helloTimer = null;
+    const stopHello = () => { if (helloTimer) { clearInterval(helloTimer); helloTimer = null; } };
+    const sendHello = () => this.netSession?.send("hello", helloMsg);
+    sendHello();
+    helloTimer = setInterval(sendHello, 700);
+
     this.panel(`
       <div class="logo" style="font-size:42px;">Locked In</div>
       <div class="tagline">waiting for the host to deploy</div>
@@ -336,11 +361,14 @@ export class Menu {
       <div class="row-actions"><button class="btn ghost" data-back>LEAVE</button></div>
     `);
     this.el.querySelector("[data-back]").onclick = () => {
+      stopHello();
       this.netSession?.destroy();
       this.netSession = null;
       this.onlineMenu();
     };
+    this.netSession.on("helloack", () => stopHello());
     this.netSession.on("config", (cfg) => {
+      stopHello();
       const session = this.netSession;
       this.netSession = null; // game owns it now
       this.hide();
@@ -354,6 +382,7 @@ export class Menu {
       });
     });
     this.netSession.onClose = () => {
+      stopHello();
       this.netSession = null;
       this.onlineMenu();
     };

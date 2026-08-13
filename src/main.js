@@ -71,6 +71,7 @@ function launchMatch(config) {
     title?.dispose(); title = null; // free the diorama before the match builds
     game?.dispose();
     game = new Game(renderer, config, (result) => showEndScreen(result, config), gamepads);
+    if (game.touch) game.touch.onPause = () => setPaused(true);
     fadeIn();
   });
 }
@@ -138,6 +139,8 @@ pauseEl.querySelector("[data-quit]").onclick = () => {
 function setPaused(v) {
   paused = v && !!game;
   pauseEl.style.display = paused ? "flex" : "none";
+  // Hide the phone controls behind the pause menu so they don't eat taps.
+  game?.touch?.setActive(!paused);
 }
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape" && game) setPaused(!paused);

@@ -25,6 +25,7 @@ import { crateVisual } from "./pickups.js";
 import { BotBrain } from "./ai.js";
 import { Hud, SharedHud } from "./hud.js";
 import { Input, P1_KEYS, P2_KEYS } from "./input.js";
+import { TouchControls, isTouchDevice } from "./touch.js";
 import { audio } from "./audio.js";
 import { clamp, lerp, rand, pick, angleDelta } from "./util.js";
 
@@ -53,6 +54,21 @@ function getEnvMap(renderer, map) {
   dome.material.dispose();
   _envMaps.set(map.id, tex);
   return tex;
+}
+
+/** Overlay phone touch input onto a keyboard/gamepad read, same rule as
+ *  the gamepad merge: strongest axis wins, buttons OR together. No-op
+ *  when there are no touch controls (desktop). */
+function mergeTouch(read, touch) {
+  if (!touch) return;
+  const t = touch.read();
+  if (Math.abs(t.throttle) > Math.abs(read.throttle)) read.throttle = t.throttle;
+  if (Math.abs(t.steer) > Math.abs(read.steer)) read.steer = t.steer;
+  if (Math.abs(t.turretTurn) > Math.abs(read.turretTurn)) read.turretTurn = t.turretTurn;
+  if (Math.abs(t.pitch) > Math.abs(read.pitch)) read.pitch = t.pitch;
+  read.fire = read.fire || t.fire;
+  read.mg = read.mg || t.mg;
+  read.view = read.view || t.view;
 }
 
 export class Game {
@@ -151,6 +167,8 @@ export class Game {
 
     // ── combatants ───────────────────────────────────────────
     this.input = new Input();
+    // Phone-only on-screen controls for the local player (index 0).
+    this.touch = isTouchDevice() ? new TouchControls() : null;
     this.players = []; // { tank, hud, keys, cam, shake, engineHandle }
     this.bots = []; // { tank, brain }
 
@@ -603,6 +621,7 @@ export class Game {
         read.fire = read.fire || pad.fire;
         read.mg = read.mg || pad.mg;
       }
+      mergeTouch(read, this.touch);
       this.net.session.send("input", {
         throttle: read.throttle, steer: read.steer,
         turretTurn: read.turretTurn, pitch: read.pitch,
@@ -685,6 +704,8 @@ export class Game {
         read.mg = read.mg || pad.mg;
         read.view = read.view || pad.viewEdge;
       }
+      // Touch controls drive the local player (index 0) only.
+      if (i === 0) mergeTouch(read, this.touch);
       if (read.view) p.view = p.view === "first" ? "third" : "first";
       if (frozen) { read.throttle = 0; read.fire = false; read.mg = false; }
       p.tank.input = read;
@@ -903,6 +924,7 @@ export class Game {
     this.weapons.dispose();
     this.pickups.clear();
     this.input.dispose();
+    this.touch?.dispose();
     if (window.__IV?.game === this) delete window.__IV;
   }
 }

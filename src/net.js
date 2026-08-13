@@ -96,7 +96,11 @@ export class NetSession {
       this.peer = peer;
       const fail = setTimeout(() => reject(new Error("Could not find that room")), 15000);
       peer.on("open", () => {
-        const conn = peer.connect(PREFIX + code.toUpperCase().trim(), { reliable: false });
+        // Reliable + ordered: the loadout/config handshake must never be
+        // dropped (an unreliable channel silently loses the one-shot
+        // "hello", deadlocking the lobby). At 15Hz snapshots + 30Hz inputs
+        // the bandwidth is trivial, so reliability costs nothing here.
+        const conn = peer.connect(PREFIX + code.toUpperCase().trim(), { reliable: true });
         conn.on("open", () => {
           clearTimeout(fail);
           this.connected = true;
