@@ -493,6 +493,7 @@ export class Game {
         winner: "CONNECTION LOST", winnerIsPlayer: false,
         standings: this.world.tanks.map((t) => ({
           name: t.name, chassis: t.chassis.name, kills: t.kills, deaths: t.deaths, isPlayer: t === this.players[0].tank,
+          chassisId: t.chassis.id, teamId: t.team?.id ?? null, skinId: t.skin?.id ?? null,
         })),
       });
     };
@@ -642,7 +643,11 @@ export class Game {
     if (this.disposed) return; // stale timer from an abandoned match
     const standings = [...this.world.tanks]
       .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
-      .map((t) => ({ name: t.name, chassis: t.chassis.name, kills: t.kills, deaths: t.deaths, isPlayer: !t.isBot }));
+      .map((t) => ({
+        name: t.name, chassis: t.chassis.name, kills: t.kills, deaths: t.deaths, isPlayer: !t.isBot,
+        // Enough to rebuild the tank's exact mesh on the victory podium.
+        chassisId: t.chassis.id, teamId: t.team?.id ?? null, skinId: t.skin?.id ?? null,
+      }));
     if (this.net?.role === "host") {
       // the guest's "you won" perspective is theirs, not ours
       this.net.session.send("end", {

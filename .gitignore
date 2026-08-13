@@ -2,3 +2,4 @@ node_modules/
 test/shots/
 .codex-task-*.md
 .git-commit-msg.txt
+test/_*.png
