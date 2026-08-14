@@ -203,90 +203,131 @@ export class PodiumScene {
     this.scene.add(this.sprayPts);
   }
 
-  // ── companion: the champion's bombshell tank-girl — a curvy pink
-  //    mascot with a comically oversized bust in a hot-pink bikini,
-  //    lounging ON the winner's hull in a classic pin-up pose: leaning
-  //    back on one arm, hand behind her head, tread-boot legs crossed ──
+  // ── companion: the champion's pin-up girl — a stylized blonde
+  //    bombshell in a hot-pink bikini and thigh-high boots, seated on
+  //    the winner's hull: leaning back on one arm, other hand behind
+  //    her head, chest out, crossed legs dangling off the deck ──
   _buildCompanion(slot, champ) {
     const grp = new THREE.Group();
 
-    const pink = new THREE.MeshStandardMaterial({ color: 0xff5fa8, roughness: 0.35, metalness: 0.25 });
-    const hotpink = new THREE.MeshStandardMaterial({ color: 0xff2f8f, roughness: 0.3, metalness: 0.3 });
-    const black = new THREE.MeshStandardMaterial({ color: 0x1a1420, roughness: 0.7 });
-    const blonde = new THREE.MeshStandardMaterial({ color: 0xffd75e, roughness: 0.45, metalness: 0.15 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xc97f58, roughness: 0.6, metalness: 0.05 });
+    const hotpink = new THREE.MeshStandardMaterial({ color: 0xff2f8f, roughness: 0.35, metalness: 0.1 });
+    const boot = new THREE.MeshStandardMaterial({ color: 0x17121c, roughness: 0.25, metalness: 0.3 });
+    const blonde = new THREE.MeshStandardMaterial({ color: 0xffd75e, roughness: 0.5, metalness: 0.1 });
     const red = new THREE.MeshStandardMaterial({ color: 0xd41c3c, roughness: 0.3 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x32210f, roughness: 0.4 });
 
-    // seated hips + bikini bottom band
-    const hips = new THREE.Mesh(new THREE.SphereGeometry(0.85, 20, 16), pink);
-    hips.scale.set(1.25, 0.7, 1.0); hips.position.y = 0.3; grp.add(hips);
-    const bottom = new THREE.Mesh(new THREE.TorusGeometry(0.88, 0.08, 8, 24), hotpink);
-    bottom.rotation.x = Math.PI / 2; bottom.position.y = 0.5; grp.add(bottom);
+    // a limb segment hanging -Y from its joint (rotate the group to pose)
+    const limb = (mat, r, len, jx, jy, jz) => {
+      const j = new THREE.Group();
+      j.position.set(jx, jy, jz);
+      const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 6, 12), mat);
+      m.position.y = -len / 2;
+      j.add(m);
+      return j;
+    };
+
+    // seated pelvis in bikini bottoms, a strip of skin above
+    const pelvis = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 16), skin);
+    pelvis.scale.set(1.25, 0.8, 1.0); pelvis.position.y = 0.16; grp.add(pelvis);
+    const bottoms = new THREE.Mesh(new THREE.SphereGeometry(0.45, 20, 16), hotpink);
+    bottoms.scale.set(1.2, 0.72, 0.97); bottoms.position.y = 0.1; grp.add(bottoms);
 
     // torso leans back — chest out (pin-up arch)
     const torso = new THREE.Group();
-    torso.position.y = 0.55;
-    torso.rotation.x = -0.32;
+    torso.position.y = 0.4;
+    torso.rotation.x = -0.28;
     grp.add(torso);
-    const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.62, 0.8, 16), pink);
-    waist.position.y = 0.35; torso.add(waist);
-    const chest = new THREE.Mesh(new THREE.SphereGeometry(0.6, 20, 16), pink);
-    chest.scale.set(1.1, 0.95, 0.85); chest.position.y = 1.0; torso.add(chest);
-    // the bust — enormous, each in its own hot-pink bikini cup
-    for (const sx of [-0.42, 0.42]) {
-      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.58, 18, 14), pink);
-      orb.position.set(sx, 1.05, 0.5); torso.add(orb);
+    // smooth hourglass: lathe from hips through waist to shoulders
+    const profile = [
+      [0.42, 0], [0.40, 0.12], [0.27, 0.42], [0.30, 0.62], [0.345, 0.82],
+      [0.335, 1.0], [0.25, 1.18], [0.11, 1.3],
+    ].map(([r, y]) => new THREE.Vector2(r, y));
+    const trunk = new THREE.Mesh(new THREE.LatheGeometry(profile, 22), skin);
+    trunk.scale.z = 0.78; torso.add(trunk);
+    // bust in halter bikini cups with strings to the neck
+    for (const sx of [-0.19, 0.19]) {
+      const breast = new THREE.Mesh(new THREE.SphereGeometry(0.30, 18, 14), skin);
+      breast.scale.set(1, 0.95, 0.88); breast.position.set(sx, 0.92, 0.30); torso.add(breast);
       const cup = new THREE.Mesh(
-        new THREE.SphereGeometry(0.61, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.5), hotpink);
-      cup.position.copy(orb.position);
-      cup.rotation.x = Math.PI / 2 + 0.25; // open side faces her chest
+        new THREE.SphereGeometry(0.32, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.52), hotpink);
+      cup.position.set(sx, 0.92, 0.30);
+      cup.rotation.x = Math.PI / 2 + 0.45; // open side against her chest
       torso.add(cup);
+      const string = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.45, 6), hotpink);
+      string.position.set(sx * 0.55, 1.16, 0.22);
+      string.rotation.set(0.35, 0, sx > 0 ? 0.32 : -0.32);
+      torso.add(string);
     }
-    // back strap
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.05, 8, 24), hotpink);
-    band.rotation.x = Math.PI / 2; band.position.y = 1.05; torso.add(band);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.345, 0.026, 8, 28), hotpink);
+    band.rotation.x = Math.PI / 2; band.scale.set(1, 1, 0.8); band.position.y = 0.9; torso.add(band);
 
-    // head: pouty lips, big blonde hair, ponytail, bow
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.46, 18, 14), pink);
-    head.position.y = 1.95; torso.add(head);
-    const lips = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), red);
-    lips.scale.set(1.6, 0.7, 0.7); lips.position.set(0, 1.83, 0.4); torso.add(lips);
+    // neck + head: face with eyes and pouty lips, long blonde hair
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.18, 12), skin);
+    neck.position.y = 1.36; torso.add(neck);
+    const headGrp = new THREE.Group();
+    headGrp.position.y = 1.58;
+    torso.add(headGrp);
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.24, 20, 16), skin);
+    skull.scale.set(0.9, 1.05, 0.92); headGrp.add(skull);
+    const lips = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), red);
+    lips.scale.set(1.5, 0.6, 0.7); lips.position.set(0, -0.08, 0.215); headGrp.add(lips);
+    for (const sx of [-0.085, 0.085]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), dark);
+      eye.scale.set(1.5, 1.1, 0.5); eye.position.set(sx, 0.03, 0.2); headGrp.add(eye);
+    }
     const crown = new THREE.Mesh(
-      new THREE.SphereGeometry(0.53, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.62), blonde);
-    crown.position.y = 2.0; torso.add(crown);
-    const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.9, 4, 10), blonde);
-    tail.position.set(0.24, 1.6, -0.5); tail.rotation.x = 0.5; torso.add(tail);
-    for (const sx of [-0.24, 0.24]) {
-      const loop = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), hotpink);
-      loop.scale.set(1, 0.65, 0.5); loop.position.set(sx, 2.42, 0.1); torso.add(loop);
+      new THREE.SphereGeometry(0.27, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.62), blonde);
+    crown.position.set(0, 0.04, -0.02); crown.rotation.x = -0.3; headGrp.add(crown);
+    const mane = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.5, 6, 12), blonde);
+    mane.position.set(0, -0.24, -0.17); mane.rotation.x = 0.28; headGrp.add(mane);
+    for (const sx of [-0.21, 0.21]) {
+      const lock = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.3, 4, 8), blonde);
+      lock.position.set(sx, -0.1, 0.03); lock.rotation.z = sx > 0 ? 0.12 : -0.12; headGrp.add(lock);
     }
 
-    // arms: right props her up behind, left hand behind her head
-    const armR = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 1.25, 4, 10), pink);
-    armR.position.set(0.78, 0.55, -0.6); armR.rotation.set(0.6, 0, -0.55); grp.add(armR);
-    const armL = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.8, 4, 10), pink);
-    armL.position.set(-0.66, 1.55, 0.1); armL.rotation.set(-0.3, 0, 1.2); torso.add(armL);
+    // left arm: bent up, hand tucked behind her head
+    const shoulderL = limb(skin, 0.062, 0.34, -0.3, 1.14, 0.02);
+    shoulderL.rotation.set(0.15, 0, -2.5); // elbow out and up
+    torso.add(shoulderL);
+    const elbowL = limb(skin, 0.055, 0.3, 0, -0.34, 0);
+    elbowL.rotation.set(-0.5, 0, 2.3); // forearm folds back toward the head
+    shoulderL.add(elbowL);
+    const handL = new THREE.Mesh(new THREE.SphereGeometry(0.065, 10, 8), skin);
+    handL.position.y = -0.32; elbowL.add(handL);
 
-    // legs: crossed at the knee, dangling off the fender, tread-block boots
-    for (const [sx, cross] of [[-0.3, 0.12], [0.32, -0.38]]) {
-      const leg = new THREE.Group();
-      leg.position.set(sx, 0.3, 0.6);
-      const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.7, 4, 10), pink);
-      thigh.rotation.x = Math.PI / 2 - 0.25; thigh.position.z = 0.35; leg.add(thigh);
-      const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.75, 4, 10), pink);
-      shin.position.set(0, -0.5, 0.78); shin.rotation.x = 0.2; leg.add(shin);
-      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.56), black);
-      boot.position.set(0, -0.98, 0.9); leg.add(boot);
-      leg.rotation.z = cross; // knee-over-knee
-      grp.add(leg);
-    }
+    // right arm: straight, propping her up on the deck behind
+    const shoulderR = limb(skin, 0.06, 0.62, 0.31, 1.12, -0.02);
+    shoulderR.rotation.set(-0.75, 0, 0.5);
+    torso.add(shoulderR);
+    const handR = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), skin);
+    handR.position.y = -0.64; shoulderR.add(handR);
+
+    // legs: bare thighs, thigh-high boots, crossed at the knee, dangling
+    const makeLeg = (hx, cross, thighTilt, shinFold) => {
+      const hip = limb(skin, 0.135, 0.5, hx, 0.18, 0.18);
+      hip.rotation.set(thighTilt, 0, cross);
+      const knee = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), boot);
+      knee.position.y = -0.52; hip.add(knee);
+      const shin = limb(boot, 0.115, 0.48, 0, -0.52, 0);
+      shin.rotation.x = shinFold;
+      hip.add(shin);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.09, 0.32), boot);
+      foot.position.set(0, -0.52, 0.1); shin.add(foot);
+      const heel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.014, 0.14, 6), boot);
+      heel.position.set(0, -0.58, -0.02); shin.add(heel);
+      grp.add(hip);
+    };
+    makeLeg(-0.15, 0.1, -1.15, 0.95);  // left leg forward, shin dangling
+    makeLeg(0.17, -0.38, -1.0, 1.1);   // right leg crossed over it
 
     grp.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 
     if (champ?.root) {
       // seat her ON the champion's rear deck (the side the camera sees),
       // facing out. Fixed hull height — every chassis deck is ~2.5 up.
-      grp.scale.setScalar(1.7);
-      grp.position.set(1.1, 3.45, -2.6);
+      grp.scale.setScalar(1.8);
+      grp.position.set(1.1, 4.15, -3.0);
       grp.rotation.y = Math.PI - 0.2;
       champ.root.add(grp); // rides the victory bob with the tank
     } else {
@@ -335,9 +376,9 @@ export class PodiumScene {
     // hero camera: slow arc across the front — podium front-and-center,
     // aimed just high enough that the tanks clear the end panel up top.
     const a = Math.sin(this.t * 0.12) * 0.3;
-    const R = 54;
-    this.cam.position.set(Math.sin(a) * R * 0.4, SLOTS[0].h + 9 + Math.sin(this.t * 0.5) * 0.5, R);
-    this.cam.lookAt(0, 17.5, 0);
+    const R = 42;
+    this.cam.position.set(Math.sin(a) * R * 0.4, SLOTS[0].h + 7.5 + Math.sin(this.t * 0.5) * 0.5, R);
+    this.cam.lookAt(0, 15.5, 0);
 
     // winners: gentle victory bob + turret sway; champion raises higher
     for (const w of this.winners) {
