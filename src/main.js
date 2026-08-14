@@ -100,6 +100,11 @@ function showEndScreen(result, config) {
   // Panel floats near the top and goes translucent so the podium shows.
   endEl.style.display = "flex";
   endEl.style.alignItems = "flex-start";
+  // the layer's fullscreen dark blur would smear the podium — drop it while
+  // one is up and let the panel carry its own backdrop (unconditional so a
+  // failed podium build can't inherit transparency from a previous showing)
+  endEl.style.background = podium ? "transparent" : "";
+  endEl.style.backdropFilter = podium ? "none" : "";
   endEl.innerHTML = `
     <div class="panel" style="margin-top:3vh; background:rgba(9,13,20,.72); backdrop-filter:blur(4px);">
       <div class="endtitle">${result.winnerIsPlayer ? "VICTORY" : "DEFEAT"}</div>
@@ -120,6 +125,8 @@ function showEndScreen(result, config) {
   const closeEnd = () => {
     endEl.style.display = "none";
     endEl.style.alignItems = "";
+    endEl.style.background = "";
+    endEl.style.backdropFilter = "";
     podium?.dispose();
     podium = null;
   };

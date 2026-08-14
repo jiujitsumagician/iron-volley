@@ -138,12 +138,19 @@ export class Tank {
       this.speed *= 1 - clamp((rise - 1.1) * 0.4, 0, 0.16) * dt * 6;
     }
 
-    // obstacle collision (cylinders)
-    for (const o of world.obstacles) {
+    // obstacle collision (cylinders) — soft props (trees, cacti) can't stop
+    // 40 tons of tank: they get crushed under the treads instead
+    for (let oi = world.obstacles.length - 1; oi >= 0; oi--) {
+      const o = world.obstacles[oi];
       const dx = nx - o.x, dz = nz - o.z;
       const d = Math.hypot(dx, dz);
       const minD = o.r + 4.2;
       if (d < minD && d > 0.001) {
+        if (o.kind === "tree" || o.kind === "cactus") {
+          world.crushObstacle?.(o);
+          this.speed *= 0.93;
+          continue;
+        }
         nx = o.x + (dx / d) * minD;
         nz = o.z + (dz / d) * minD;
         this.speed *= 0.82;

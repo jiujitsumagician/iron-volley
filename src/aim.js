@@ -11,14 +11,12 @@
  */
 
 import * as THREE from "three";
-import { ROUND_TYPES, GRAVITY } from "./weapons.js";
+import { ROUND_TYPES, GRAVITY, cannonImpactPoint } from "./weapons.js";
 
 // ground footprint of each round (matches the deform/splash radii)
 const LAND_RADIUS = { standard: 11, scatter: 11, nuke: 74, incendiary: 14, gravity: 22, laser: 2.5 };
 const MAX_PTS = 80;
 const AIM_RED = 0xff3b3b;
-const AXIS_X = new THREE.Vector3(1, 0, 0);
-const AXIS_Y = new THREE.Vector3(0, 1, 0);
 
 export class AimPreview {
   constructor(scene, world) {
@@ -144,11 +142,8 @@ export class AimPreview {
 
   _mgCrosshair(tank) {
     const from = tank.mgMuzzleWorld(this._muzzle);
-    // match weapons.fireMg exactly — full barrel elevation
-    const dir = this._dir.set(0, 0, 1)
-      .applyAxisAngle(AXIS_X, -tank.barrelPitch)
-      .applyAxisAngle(AXIS_Y, tank.absoluteTurretYaw())
-      .normalize();
+    // match weapons.fireMg exactly — aimed at the cannon's landing point
+    const dir = this._dir.copy(cannonImpactPoint(tank, this.world, this._hit)).sub(from).normalize();
     const range = 160;
     const p = this._p;
     const hit = this._hit.copy(from).addScaledVector(dir, range);

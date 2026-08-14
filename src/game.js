@@ -131,6 +131,14 @@ export class Game {
       // environment destruction — craters carve real terrain, props die
       deform: built.deform,
       destroyObstacle: built.destroyObstacle,
+      // tank treads flatten soft props (trees/cacti): debris pop, then gone
+      crushObstacle: (o) => {
+        const pos = new THREE.Vector3(o.x, (o.y ?? 0) + o.h * 0.3, o.z);
+        this.effects.sparks(pos, 12, o.debrisColor ?? 0x3f7a3a);
+        this.effects.dust(pos, 1);
+        audio.explosion(0.14, {});
+        built.destroyObstacle(o);
+      },
       tanks: [],
     };
 

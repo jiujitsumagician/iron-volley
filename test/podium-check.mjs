@@ -45,23 +45,27 @@ try {
   await page.waitForFunction(() => window.__PODIUM && window.__PODIUM.winners?.length === 3, null, { timeout: 20000 });
   const info = await page.evaluate(() => {
     const p = window.__PODIUM;
+    const champ = p.winners.find((w) => w.place === 0);
     return {
       winners: p.winners.length,
       hasCompanion: !!p.companion,
-      companionCannons: p._compBarrels?.length ?? 0,
+      companionOnTank: !!champ && p.companion?.root?.parent === champ.root,
       hasChampagne: !!p.bottleGrp,
       hasConfetti: !!p.confettiPts,
       sceneChildren: p.scene.children.length,
     };
   });
   assert(info.winners === 3, `three winners on the podium (${info.winners})`);
-  assert(info.hasCompanion, "champion has a companion tank");
-  assert(info.companionCannons === 2, `companion has two oversized cannons (${info.companionCannons})`);
+  assert(info.hasCompanion, "champion has a companion girl");
+  assert(info.companionOnTank, "companion is seated on the champion's tank");
   assert(info.hasChampagne, "champion has a champagne bottle");
   assert(info.hasConfetti, "confetti is present");
   assert(info.sceneChildren > 10, `scene is populated (${info.sceneChildren} objects)`);
 
-  // Let the loop render + animate a few frames, then screenshot.
+  // Let the loop render + animate a few frames, then screenshot. The boot
+  // flow may have re-shown the menu after our early hide — hide it again
+  // (in a real finished match it's long gone).
+  await page.evaluate(() => { const m = document.getElementById("menu"); if (m) m.style.display = "none"; });
   await page.waitForTimeout(1200);
   await page.screenshot({ path: "test/_podium.png" });
   console.log("ok: screenshot saved to test/_podium.png");

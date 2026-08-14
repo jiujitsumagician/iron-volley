@@ -32,10 +32,46 @@ const _v2 = new THREE.Vector3();
 const _muzzle = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _from = new THREE.Vector3();
-const _AXIS_X = new THREE.Vector3(1, 0, 0);
-const _AXIS_Y = new THREE.Vector3(0, 1, 0);
 const _AXIS_Z = new THREE.Vector3(0, 0, 1);
 const _shellDir = new THREE.Vector3();
+const _impP = new THREE.Vector3();
+const _impV = new THREE.Vector3();
+const _impFrom = new THREE.Vector3();
+const _impDir = new THREE.Vector3();
+
+/**
+ * Where the loaded cannon round would land — the exact point the aim
+ * preview marks. Shared by the MG (which shoots AT this point rather than
+ * along the raw lobbed barrel elevation) and the MG crosshair.
+ */
+export function cannonImpactPoint(tank, world, out) {
+  const from = tank.muzzleWorld(_impFrom);
+  const dir = tank.muzzleDir(_impDir);
+  const type = tank.special?.type ?? "standard";
+  if (type === "laser") {
+    out.copy(from).addScaledVector(dir, 600);
+    for (let d = 4; d < 600; d += 4) {
+      _impP.copy(from).addScaledVector(dir, d);
+      if (_impP.y <= world.heightAt(_impP.x, _impP.z)) { out.copy(_impP); break; }
+    }
+    return out;
+  }
+  const speed = tank.chassis.stats.shellSpeed * (type === "nuke" ? 0.72 : 1);
+  const p = _impP.copy(from);
+  const v = _impV.copy(dir).multiplyScalar(speed);
+  const step = 0.045; // matches the aim-preview integration exactly
+  out.copy(p);
+  for (let i = 1; i < 80; i++) {
+    v.y -= GRAVITY * step;
+    p.addScaledVector(v, step);
+    out.copy(p);
+    if (p.y <= world.heightAt(p.x, p.z)) break;
+  }
+  // the preview's landing ring sits on the terrain under the last arc
+  // point (even when the 80-step arc truncates mid-air) — mirror that
+  out.y = world.heightAt(out.x, out.z);
+  return out;
+}
 
 // lathe-turned artillery round: cylindrical body + ogive nose, nose on +Z
 function makeShellGeo() {
@@ -218,11 +254,10 @@ export class Weapons {
     tank.mgHeat = Math.min(1, tank.mgHeat + 0.045);
 
     const from = tank.mgMuzzleWorld(_from);
-    // MG tracks the full gun elevation (not a fraction) so the crosshair is
-    // honest and the player can actually depress onto close / downhill targets
-    const dir = _v2.set(0, 0, 1)
-      .applyAxisAngle(_AXIS_X, -tank.barrelPitch)
-      .applyAxisAngle(_AXIS_Y, tank.absoluteTurretYaw());
+    // MG shoots where the cannon crosshair sits — at the ballistic landing
+    // point — instead of along the raw barrel elevation, which is lobbed
+    // skyward for the arc and sent every burst into the air
+    const dir = _v2.copy(cannonImpactPoint(tank, this.ctx.world, _v)).sub(from).normalize();
     // spread
     dir.x += (Math.random() - 0.5) * 0.035;
     dir.y += (Math.random() - 0.5) * 0.02;
@@ -413,8 +448,8 @@ export class Weapons {
         const r = s.small ? 7 : 12;
         fx.explosion(p, { radius: r });
         this.ctx.audio.explosion(s.small ? 0.3 : 0.5, {});
-        this.ctx.world.deform?.(p.x, p.z, s.small ? 5.5 : 11, s.small ? 1.6 : 3.6);
-        this.damageProps(p, r + 4, s.small ? 18 : 45);
+        this.ctx.world.deform?.(p.x, p.z, s.small ? 4 : 7.5, s.small ? 1.1 : 2.2);
+        this.damageProps(p, r + 4, s.small ? 12 : 30);
         if (directHitTank) this.applyDamage(directHitTank, s.owner.chassis.stats.shellDamage * (s.small ? 0.4 : 1), s.owner, "AP SHELL");
         this.splash(p, r + 5, s.owner.chassis.stats.shellDamage * (s.small ? 0.4 : 0.85), s.owner, "AP SHELL", directHitTank);
         break;
