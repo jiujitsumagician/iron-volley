@@ -9,6 +9,7 @@ import { PodiumScene } from "./podium.js";
 import { audio } from "./audio.js";
 import { GamepadManager } from "./gamepad.js";
 import { preloadModels } from "./models.js";
+import { esc } from "./util.js";
 
 // ── renderer ─────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -108,12 +109,12 @@ function showEndScreen(result, config) {
   endEl.innerHTML = `
     <div class="panel" style="margin-top:3vh; background:rgba(9,13,20,.72); backdrop-filter:blur(4px);">
       <div class="endtitle">${result.winnerIsPlayer ? "VICTORY" : "DEFEAT"}</div>
-      <div class="endsub">${result.winner} takes the field</div>
+      <div class="endsub">${esc(result.winner)} takes the field</div>
       <table class="scores">
         <tr><th>Commander</th><th>Tank</th><th>Kills</th><th>Deaths</th></tr>
         ${result.standings.map((s) => `
           <tr class="${s.isPlayer ? "me" : ""}">
-            <td>${s.name}</td><td>${s.chassis}</td><td>${s.kills}</td><td>${s.deaths}</td>
+            <td>${esc(s.name)}</td><td>${esc(s.chassis)}</td><td>${Number(s.kills) | 0}</td><td>${Number(s.deaths) | 0}</td>
           </tr>`).join("")}
       </table>
       <div class="row-actions">

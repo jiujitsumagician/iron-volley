@@ -8,6 +8,10 @@ export const rand = (a = 1, b) => (b === undefined ? Math.random() * a : a + Mat
 export const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 export const TAU = Math.PI * 2;
 
+/** Escape a value for safe interpolation into innerHTML templates. */
+export const esc = (v) =>
+  String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
 /** Shortest signed angle from a to b. */
 export function angleDelta(a, b) {
   let d = (b - a) % TAU;

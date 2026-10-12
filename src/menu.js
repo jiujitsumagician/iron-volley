@@ -11,6 +11,7 @@ import { NetSession } from "./net.js";
 import { MAPS } from "./maps.js";
 import { audio } from "./audio.js";
 import { tankThumb, mapThumb } from "./thumbs.js";
+import { esc } from "./util.js";
 
 export class Menu {
   constructor(rootEl, onLaunch, gamepads = null) {
@@ -299,7 +300,14 @@ export class Menu {
 
     this.netHelloShown = false;
     this.netSession = new NetSession();
-    this.netSession.on("hello", (d) => {
+    this.netSession.on("hello", (raw) => {
+      if (!raw || typeof raw !== "object") return;
+      // Peer-supplied: normalise to plain, bounded values before use.
+      const d = {
+        name: String(raw.name ?? "CHALLENGER").replace(/[^w .-]/g, "").slice(0, 16) || "CHALLENGER",
+        chassisId: typeof raw.chassisId === "string" ? raw.chassisId : CHASSIS[1].id,
+        skinId: typeof raw.skinId === "string" ? raw.skinId : null,
+      };
       this.netGuestHello = d;
       // Always ack so the guest stops resending its loadout, even on the
       // duplicates that arrive before the first ack lands.
@@ -310,7 +318,7 @@ export class Menu {
       if (!loberr || !goBtn) return;
       this.netHelloShown = true;
       loberr.innerHTML =
-        `<b style="color:#6dff8a;">${d.name ?? "CHALLENGER"} READY</b> — ${d.chassisId.toUpperCase()}`;
+        `<b style="color:#6dff8a;">${esc(d.name)} READY</b> — ${esc(d.chassisId.toUpperCase())}`;
       goBtn.style.display = "";
       this.refreshFocusables();
       audio.pickup?.({});
@@ -424,7 +432,9 @@ export class Menu {
   // ── options: gamepad layout + audio ─────────────────────────
   options() {
     const gm = this.gamepads;
-    const vols = JSON.parse(localStorage.getItem("iv.audio") ?? '{"master":80,"music":35,"sfx":100}');
+    let vols;
+    try { vols = JSON.parse(localStorage.getItem("iv.audio") ?? "null"); } catch { vols = null; }
+    if (!vols || typeof vols !== "object") vols = { master: 80, music: 35, sfx: 100 };
     if (vols.sfx == null) vols.sfx = 100;
     const bindRow = (action, label) => `
       <div class="choice" data-rebind="${action}" style="min-width:170px;">

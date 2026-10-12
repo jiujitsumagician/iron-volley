@@ -17,8 +17,16 @@ const PREFIX = "iron-volley-v1-";
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
 
 export function makeRoomCode() {
+  // Cryptographic randomness (the code is the only join secret); reject the
+  // biased tail of the 32-bit range so every symbol is equally likely.
+  const n = CODE_ALPHABET.length;
+  const limit = Math.floor(0x100000000 / n) * n;
+  const buf = new Uint32Array(1);
   let s = "";
-  for (let i = 0; i < 5; i++) s += CODE_ALPHABET[(Math.random() * CODE_ALPHABET.length) | 0];
+  while (s.length < 5) {
+    crypto.getRandomValues(buf);
+    if (buf[0] < limit) s += CODE_ALPHABET[buf[0] % n];
+  }
   return s;
 }
 
@@ -45,8 +53,12 @@ export class NetSession {
   _wire(conn) {
     this.conn = conn;
     conn.on("data", (msg) => {
-      const cb = this.handlers.get(msg?.y);
-      if (cb) cb(msg.d);
+      // Untrusted peer input: ignore anything that is not a {y, d} envelope
+      // and never let a malformed payload throw out of a handler.
+      if (!msg || typeof msg !== "object" || typeof msg.y !== "string") return;
+      const cb = this.handlers.get(msg.y);
+      if (!cb) return;
+      try { cb(msg.d); } catch (e) { console.warn("net handler", msg.y, e); }
     });
     conn.on("close", () => {
       this.connected = false;
@@ -62,6 +74,7 @@ export class NetSession {
   host(onGuestConnected) {
     this.role = "host";
     return new Promise((resolve, reject) => {
+      let claimed = null; // first inbound connection owns the room until it drops
       const code = makeRoomCode();
       const peer = new Peer(PREFIX + code, { debug: 0 });
       this.peer = peer;
@@ -79,6 +92,11 @@ export class NetSession {
       });
       peer.on("connection", (conn) => {
         if (this.conn?.open) { conn.close(); return; } // one guest only
+        if (claimed) { conn.close(); return; } // another connection is already mid-handshake
+        claimed = conn;
+        const release = () => { if (claimed === conn) claimed = null; };
+        conn.on("close", release);
+        conn.on("error", release);
         conn.on("open", () => {
           this.connected = true;
           this._wire(conn);

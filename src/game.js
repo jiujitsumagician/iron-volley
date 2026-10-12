@@ -432,7 +432,16 @@ export class Game {
   initNetHost() {
     const s = this.net.session;
     this._snapAcc = 0;
-    s.on("input", (d) => { this.remoteInput = d; });
+    s.on("input", (d) => {
+      if (!d || typeof d !== "object") return;
+      // Peer-supplied: coerce to finite numbers/booleans so a malformed
+      // message can't throw in the update loop or poison tank physics.
+      const n = (v) => (Number.isFinite(v) ? v : 0);
+      this.remoteInput = {
+        throttle: n(d.throttle), steer: n(d.steer), turretTurn: n(d.turretTurn), pitch: n(d.pitch),
+        fire: !!d.fire, mg: !!d.mg,
+      };
+    });
     s.onClose = () => {
       if (this.over || this.disposed) return;
       this.players[0]?.hud?.toast("OPPONENT DISCONNECTED", 2500);
@@ -462,8 +471,11 @@ export class Game {
     this._inputAcc = 0;
 
     s.on("roster", (r) => {
+      if (!r || !Array.isArray(r.tanks)) return;
       this.killTarget = r.killTarget;
-      r.tanks.forEach((info, i) => {
+      r.tanks.slice(0, 16).forEach((rawInfo, i) => {
+        const info = rawInfo && typeof rawInfo === "object" ? rawInfo : {};
+        info.name = String(info.name ?? "").slice(0, 24);
         const tank = new Tank({
           chassis: chassisById(info.chassisId),
           team: TEAM_COLORS.find((t) => t.id === info.teamId) ?? TEAM_COLORS[i % TEAM_COLORS.length],
@@ -481,14 +493,35 @@ export class Game {
       });
       this.updateScorePill();
     });
-    s.on("snap", (snap) => this.applySnapshot(snap));
+    s.on("snap", (snap) => {
+      if (!snap || !Array.isArray(snap.t)) return;
+      this.applySnapshot(snap);
+    });
     s.on("feed", (f) => {
+      if (!f || typeof f !== "object") return;
       this.sharedHud.addKill(f.killer, f.weapon, f.victim);
       if (f.score) this.sharedHud.setScore(f.score);
       audio.explosion(0.4, {});
     });
-    s.on("end", (result) => {
+    s.on("end", (raw) => {
       if (this.over) return;
+      // Peer-supplied: keep only the fields the end screen / podium read.
+      const result = {
+        winner: String(raw?.winner ?? ""),
+        winnerIsPlayer: !!raw?.winnerIsPlayer,
+        standings: Array.isArray(raw?.standings)
+          ? raw.standings.slice(0, 16).map((s) => ({
+              name: String(s?.name ?? "").slice(0, 24),
+              chassis: String(s?.chassis ?? ""),
+              kills: Number(s?.kills) | 0,
+              deaths: Number(s?.deaths) | 0,
+              isPlayer: !!s?.isPlayer,
+              chassisId: typeof s?.chassisId === "string" ? s.chassisId : null,
+              teamId: typeof s?.teamId === "string" ? s.teamId : null,
+              skinId: typeof s?.skinId === "string" ? s.skinId : null,
+            }))
+          : [],
+      };
       this.over = true;
       this._finishTimer = setTimeout(() => {
         if (!this.disposed) this.onMatchEnd(result);

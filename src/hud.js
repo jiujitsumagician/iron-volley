@@ -8,6 +8,7 @@
  */
 
 import { ROUND_TYPES } from "./weapons.js";
+import { esc } from "./util.js";
 
 export class Hud {
   /** @param {HTMLElement} rootEl  @param {"left"|"right"|"full"} region */
@@ -32,7 +33,7 @@ export class Hud {
       </svg>
       <div class="corner" style="left:18px;bottom:16px;">
         <div class="hpwrap">
-          <div class="label">${label}</div>
+          <div class="label">${esc(label)}</div>
           <div class="bar hp"><i></i></div>
         </div>
         <div class="ammo">
@@ -212,7 +213,7 @@ export class SharedHud {
 
   addKill(killerName, weapon, victimName) {
     const div = document.createElement("div");
-    div.innerHTML = `<b>${killerName}</b> ⟶ ${weapon} ⟶ ${victimName}`;
+    div.innerHTML = `<b>${esc(killerName)}</b> ⟶ ${esc(weapon)} ⟶ ${esc(victimName)}`;
     this.feed.prepend(div);
     while (this.feed.children.length > 5) this.feed.lastChild.remove();
     setTimeout(() => div.remove(), 6000);
