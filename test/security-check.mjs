@@ -4,7 +4,7 @@
 // Run: node test/security-check.mjs
 import assert from "node:assert";
 import { spawn } from "node:child_process";
-import { esc } from "../src/util.js";
+import { esc, cleanName } from "../src/util.js";
 import { makeRoomCode, NetSession } from "../src/net.js";
 
 // ── esc ──
@@ -12,6 +12,15 @@ assert.strictEqual(esc('<img src=x onerror="a()">&\''), "&lt;img src=x onerror=&
 assert.strictEqual(esc(null), "");
 assert.strictEqual(esc("CHALLENGER"), "CHALLENGER");
 console.log("ok: esc escapes markup and leaves plain names alone");
+
+// ── hello name sanitiser ──
+assert.strictEqual(cleanName("Bob_1"), "Bob_1");
+assert.strictEqual(cleanName("Alice-B. 2"), "Alice-B. 2");
+assert.strictEqual(cleanName("<img src=x>"), "img srcx");
+assert.strictEqual(cleanName("<>"), "CHALLENGER");
+assert.strictEqual(cleanName(undefined), "CHALLENGER");
+assert.strictEqual(cleanName("x".repeat(40)).length, 16);
+console.log("ok: peer names keep letters, digits, underscore, space, dot, hyphen");
 
 // ── room codes ──
 for (let i = 0; i < 1000; i++) assert.match(makeRoomCode(), /^[A-HJ-KM-NP-Z2-9]{5}$/);

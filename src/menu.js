@@ -11,7 +11,7 @@ import { NetSession } from "./net.js";
 import { MAPS } from "./maps.js";
 import { audio } from "./audio.js";
 import { tankThumb, mapThumb } from "./thumbs.js";
-import { esc } from "./util.js";
+import { esc, cleanName } from "./util.js";
 
 export class Menu {
   constructor(rootEl, onLaunch, gamepads = null) {
@@ -304,7 +304,7 @@ export class Menu {
       if (!raw || typeof raw !== "object") return;
       // Peer-supplied: normalise to plain, bounded values before use.
       const d = {
-        name: String(raw.name ?? "CHALLENGER").replace(/[^w .-]/g, "").slice(0, 16) || "CHALLENGER",
+        name: cleanName(raw.name),
         chassisId: typeof raw.chassisId === "string" ? raw.chassisId : CHASSIS[1].id,
         skinId: typeof raw.skinId === "string" ? raw.skinId : null,
       };

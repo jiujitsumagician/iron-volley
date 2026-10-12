@@ -70,3 +70,7 @@ export function makeFbm(seed, octaves = 4, lacunarity = 2, gain = 0.5) {
     return sum / norm; // -1..1
   };
 }
+
+/** Normalise a peer-supplied display name: word chars, space, dot, hyphen; max 16. */
+export const cleanName = (v) =>
+  String(v ?? "CHALLENGER").replace(/[^\w .-]/g, "").slice(0, 16) || "CHALLENGER";

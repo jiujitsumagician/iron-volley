@@ -94,10 +94,13 @@ export class NetSession {
         if (this.conn?.open) { conn.close(); return; } // one guest only
         if (claimed) { conn.close(); return; } // another connection is already mid-handshake
         claimed = conn;
-        const release = () => { if (claimed === conn) claimed = null; };
+        const release = () => { clearTimeout(stall); if (claimed === conn) claimed = null; };
+        // A peer that never completes the handshake must not hold the room hostage.
+        const stall = setTimeout(() => { if (!conn.open) { release(); try { conn.close(); } catch {} } }, 10000);
         conn.on("close", release);
         conn.on("error", release);
         conn.on("open", () => {
+          clearTimeout(stall);
           this.connected = true;
           this._wire(conn);
           onGuestConnected?.();

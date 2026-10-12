@@ -475,6 +475,8 @@ export class Game {
       this.killTarget = r.killTarget;
       r.tanks.slice(0, 16).forEach((rawInfo, i) => {
         const info = rawInfo && typeof rawInfo === "object" ? rawInfo : {};
+        // Only name is coerced: chassisId/skinId/teamId are looked up by id with safe
+        // fallbacks and never reach a DOM or code sink, so they are intentionally unvalidated.
         info.name = String(info.name ?? "").slice(0, 24);
         const tank = new Tank({
           chassis: chassisById(info.chassisId),
